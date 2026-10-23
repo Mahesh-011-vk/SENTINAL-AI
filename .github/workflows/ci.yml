@@ -35,10 +35,12 @@ jobs:
           pip install ruff
           ruff check backend/ --config ruff.toml
 
-      - name: Validate Database Migrations
+      - name: Validate Database Migrations & Seed Data
         run: |
           cd backend
           alembic upgrade head
+          cd ..
+          PYTHONPATH=backend python backend/app/seed.py
 
       - name: Run Pytest Test Suite (41 Tests)
         run: |

@@ -3,6 +3,9 @@ from app.main import app
 
 
 def run_e2e_verification():
+    from app.seed import seed_demo_data
+    seed_demo_data()
+
     client = TestClient(app)
 
     # 1. Health live
