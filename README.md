@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://frontend-delta-one-29.vercel.app"><img src="https://img.shields.io/badge/Vercel-Live%20Demo-black?style=flat&logo=vercel" alt="Vercel Live Demo" /></a>
   <a href="https://github.com/Mahesh-011-vk/SENTINAL-AI/actions/workflows/ci.yml"><img src="https://github.com/Mahesh-011-vk/SENTINAL-AI/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline Status" /></a>
   <img src="https://img.shields.io/badge/Tests-41%2F41%20Passed-10B981?style=flat&logo=pytest" alt="Pytest Status" />
   <img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-3776AB?style=flat&logo=python&logoColor=white" alt="Python Version" />
@@ -93,7 +94,10 @@ $$\text{Risk Score} = \min\left(100.0, \, \left(\text{CVSS} \times 10 \times W_{
 
 ---
 
-## 4. Quick Start & Local Execution
+## 4. Quick Start & Execution
+
+> 🌐 **Live Cloud Deployment (Vercel):**  
+> Explore the live SentinelAI Security Console at [https://frontend-delta-one-29.vercel.app](https://frontend-delta-one-29.vercel.app). Pre-configured with offline-resilient interactive demo data and sandbox security views.
 
 ### Prerequisites
 - **Python:** 3.11, 3.12, or 3.13
