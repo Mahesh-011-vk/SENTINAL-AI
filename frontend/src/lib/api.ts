@@ -204,5 +204,16 @@ export const apiClient = {
 
   getReportDownloadUrl(reportId: string) {
     return `${API_BASE}/reports/${reportId}/download`;
+  },
+
+  async getSBOM(projectId: string) {
+    return this.request<any>(`/projects/${projectId}/sbom`);
+  },
+
+  async evaluatePolicy(projectId: string, config?: any) {
+    return this.request<any>(`/projects/${projectId}/policy/evaluate`, {
+      method: 'POST',
+      body: config ? JSON.stringify(config) : undefined,
+    });
   }
 };

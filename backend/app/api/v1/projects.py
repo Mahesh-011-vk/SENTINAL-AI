@@ -7,6 +7,9 @@ from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.core.permissions import verify_tenant_isolation, require_role_permission
 from app.services.audit_service import AuditService
+from app.services.sbom_service import sbom_service
+from app.services.policy_engine import policy_engine, PolicyConfig, PolicyEvaluationResult
+from typing import Optional, Any, Dict
 
 router = APIRouter()
 
@@ -111,3 +114,41 @@ def update_project(
     )
 
     return project
+
+
+@router.get("/{project_id}/sbom", response_model=Dict[str, Any])
+def get_project_sbom(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate and return standard CycloneDX 1.5 JSON SBOM for project components and dependencies."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    verify_tenant_isolation(current_user, project.tenant_id)
+    return sbom_service.generate_cyclonedx_sbom(db=db, project_id=project_id)
+
+
+@router.post("/{project_id}/policy/evaluate", response_model=PolicyEvaluationResult)
+def evaluate_project_policy(
+    project_id: str,
+    payload: Optional[PolicyConfig] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluate project security posture against Policy-as-Code build gates.
+    Returns pass/fail decision with observed vs threshold metrics and blocking finding IDs.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+    verify_tenant_isolation(current_user, project.tenant_id)
+    return policy_engine.evaluate(db=db, project_id=project_id, config=payload)

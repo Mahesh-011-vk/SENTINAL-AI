@@ -11,6 +11,7 @@ from app.scanners.secret_gitleaks import GitleaksSecretAdapter
 from app.scanners.sca_osv import OSVScannerSCAAdapter
 from app.scanners.config_audit import ConfigAuditAdapter
 from app.scanners.dast_zap import OWASPZAPAdapter
+from app.scanners.api_spec_audit import APISpecAuditAdapter
 from app.scanners.mock_adapter import MockScannerAdapter
 from app.services.risk_service import DeterministicRiskEngine
 from app.services.audit_service import AuditService
@@ -28,6 +29,7 @@ class ScannerManager:
             ScannerName.GITLEAKS: GitleaksSecretAdapter(),
             ScannerName.OSV_SCANNER: OSVScannerSCAAdapter(),
             ScannerName.CONFIG_AUDIT: ConfigAuditAdapter(),
+            ScannerName.API_SPEC_AUDIT: APISpecAuditAdapter(),
             ScannerName.OWASP_ZAP: OWASPZAPAdapter(),
             ScannerName.MOCK_SCANNER: MockScannerAdapter(),
         }

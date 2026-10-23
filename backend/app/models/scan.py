@@ -29,6 +29,7 @@ class ScannerName(str, enum.Enum):
     GITLEAKS = "GITLEAKS"
     OWASP_ZAP = "OWASP_ZAP"
     CONFIG_AUDIT = "CONFIG_AUDIT"
+    API_SPEC_AUDIT = "API_SPEC_AUDIT"
     MOCK_SCANNER = "MOCK_SCANNER"
 
 

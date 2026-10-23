@@ -52,6 +52,19 @@ def run_e2e_verification():
     assert len(logs) > 0, "No audit logs returned"
     print(f"6. Audit Trail verified: {len(logs)} log entries recorded. Latest action: '{logs[0]['action']}'")
 
+    # 7. Verify CycloneDX SBOM generation
+    r = client.get(f"/api/v1/projects/{project_id}/sbom", headers=headers)
+    assert r.status_code == 200, f"SBOM generation failed: {r.text}"
+    sbom = r.json()
+    assert sbom["bomFormat"] == "CycloneDX"
+    print(f"7. CycloneDX 1.5 SBOM generated: {len(sbom['components'])} components, {len(sbom['vulnerabilities'])} vulnerabilities recorded.")
+
+    # 8. Verify Policy-as-Code Build Gate Evaluation
+    r = client.post(f"/api/v1/projects/{project_id}/policy/evaluate", headers=headers, json={"max_critical_findings": 0})
+    assert r.status_code == 200, f"Policy evaluation failed: {r.text}"
+    policy = r.json()
+    print(f"8. Policy-as-Code Evaluation: Overall Status '{policy['overall_status']}', {len(policy['rule_results'])} rules evaluated. Summary: {policy['summary']}")
+
     print("\nALL VERIFICATION CHECKS PASSED SUCCESSFULLY!")
 
 
