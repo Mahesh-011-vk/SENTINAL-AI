@@ -25,7 +25,10 @@ import {
   ExternalLink,
   ShieldCheck,
   ShieldAlert,
-  Server
+  Server,
+  Plus,
+  X,
+  FolderPlus
 } from 'lucide-react';
 import { apiClient, User, Project, Asset, Finding, ScanJob, AuditLog, AIExplanation } from '@/lib/api';
 
@@ -65,6 +68,16 @@ export default function SentinelConsole() {
   // Fix verification state
   const [isVerifyingFix, setIsVerifyingFix] = useState(false);
   const [verificationOutcome, setVerificationOutcome] = useState<any>(null);
+
+  // Asset Registration State
+  const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [newAssetName, setNewAssetName] = useState('');
+  const [newAssetType, setNewAssetType] = useState<'REPOSITORY' | 'WEB_APPLICATION' | 'API_ENDPOINT' | 'CONTAINER_IMAGE'>('REPOSITORY');
+  const [newAssetLocator, setNewAssetLocator] = useState('');
+  const [newAssetEnvironment, setNewAssetEnvironment] = useState<'PRODUCTION' | 'STAGING' | 'DEVELOPMENT'>('PRODUCTION');
+  const [newAssetCriticality, setNewAssetCriticality] = useState<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('HIGH');
+  const [newAssetExposure, setNewAssetExposure] = useState<'INTERNET_FACING' | 'INTERNAL' | 'RESTRICTED'>('INTERNET_FACING');
+  const [isSubmittingAsset, setIsSubmittingAsset] = useState(false);
 
   // Filter state
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
@@ -281,6 +294,49 @@ export default function SentinelConsole() {
       showToast(`Fix verification failed: ${e.message}`);
     } finally {
       setIsVerifyingFix(false);
+    }
+  };
+
+  const handleCreateAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProject) return;
+    if (!newAssetName.trim() || !newAssetLocator.trim()) {
+      showToast('Asset name and target locator are required.');
+      return;
+    }
+
+    setIsSubmittingAsset(true);
+    try {
+      const asset = await apiClient.createAsset(selectedProject.id, {
+        name: newAssetName.trim(),
+        asset_type: newAssetType,
+        target_locator: newAssetLocator.trim(),
+        environment: newAssetEnvironment,
+        business_criticality: newAssetCriticality,
+        exposure: newAssetExposure,
+      });
+
+      // If it's a web application, auto-authorize scope
+      if (newAssetType === 'WEB_APPLICATION') {
+        const domain = newAssetLocator.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
+        const nextQuarter = new Date();
+        nextQuarter.setDate(nextQuarter.getDate() + 90);
+        await apiClient.authorizeAsset(asset.id, {
+          scope_description: `Initial automated authorization for ${asset.name}`,
+          allowed_domains: domain,
+          expires_at: nextQuarter.toISOString(),
+        }).catch(() => null);
+      }
+
+      await refreshProjectDetails(selectedProject.id);
+      showToast(`Registered application '${asset.name}' under security scope.`);
+      setShowAddAssetModal(false);
+      setNewAssetName('');
+      setNewAssetLocator('');
+    } catch (err: any) {
+      showToast(`Failed to register asset: ${err.message}`);
+    } finally {
+      setIsSubmittingAsset(false);
     }
   };
 
@@ -800,32 +856,70 @@ export default function SentinelConsole() {
                 <h3 className="text-lg font-bold text-white">Registered Application Assets</h3>
                 <p className="text-xs text-slate-400">Inventory of repositories, web applications, containers, and APIs under security scope.</p>
               </div>
+              <button
+                onClick={() => setShowAddAssetModal(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-lg shadow-amber-500/20"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Register Application</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {assets.map((a) => (
-                <div key={a.id} className="glass-panel p-5 rounded-xl border border-slate-800 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-xs text-amber-400 font-mono">{a.asset_type}</div>
-                      <h4 className="font-bold text-white text-base mt-0.5">{a.name}</h4>
+                <div key={a.id} className="glass-panel p-5 rounded-xl border border-slate-800 space-y-3 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="text-xs text-amber-400 font-mono font-medium">{a.asset_type}</div>
+                        <h4 className="font-bold text-white text-base mt-0.5">{a.name}</h4>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                        {a.environment}
+                      </span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                      {a.environment}
-                    </span>
+
+                    <div className="text-xs text-slate-300 font-mono bg-slate-900/80 p-2 rounded border border-slate-800 truncate" title={a.target_locator}>
+                      {a.target_locator}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
+                      <span>Criticality: <b className="text-slate-200">{a.business_criticality}</b></span>
+                      <span>Exposure: <b className="text-slate-200">{a.exposure}</b></span>
+                    </div>
                   </div>
 
-                  <div className="text-xs text-slate-300 font-mono bg-slate-900/80 p-2 rounded border border-slate-800 truncate">
-                    {a.target_locator}
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
-                    <span>Criticality: <b className="text-slate-200">{a.business_criticality}</b></span>
-                    <span>Exposure: <b className="text-slate-200">{a.exposure}</b></span>
+                  <div className="pt-2 border-t border-slate-800/80">
+                    <button
+                      onClick={() => {
+                        setSelectedAssetId(a.id);
+                        setActiveTab('scans');
+                      }}
+                      className="w-full py-2 px-3 bg-slate-800/80 hover:bg-slate-700 text-amber-400 hover:text-amber-300 font-semibold text-xs rounded-lg transition flex items-center justify-center space-x-1.5 border border-slate-700/80"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>Launch Assessment</span>
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+
+            {assets.length === 0 && (
+              <div className="glass-panel p-10 rounded-xl text-center space-y-3 border border-slate-800">
+                <FolderPlus className="w-10 h-10 text-slate-500 mx-auto" />
+                <div className="font-bold text-white text-base">No Applications Registered Yet</div>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Register your repository, web application URL, API specification, or container image to begin automated vulnerability auditing.
+                </p>
+                <button
+                  onClick={() => setShowAddAssetModal(true)}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition"
+                >
+                  + Register First Application
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1179,6 +1273,154 @@ export default function SentinelConsole() {
           </div>
         )}
       </main>
+
+      {/* Register Asset Modal */}
+      {showAddAssetModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#0B0F19] border border-amber-500/30 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden space-y-4">
+            <div className="flex items-center justify-between p-5 border-b border-slate-800">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                  <FolderPlus className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Register Application / Asset</h3>
+                  <p className="text-xs text-slate-400">Add a new target application into security assessment scope.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAddAssetModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAsset} className="p-5 space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-300 font-medium">Application Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Payments Gateway or Customer Portal"
+                  value={newAssetName}
+                  onChange={(e) => setNewAssetName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-300 font-medium">Asset & Assessment Type</label>
+                <select
+                  value={newAssetType}
+                  onChange={(e) => setNewAssetType(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-amber-400 outline-none"
+                >
+                  <option value="REPOSITORY">Source Code Repository (SAST, Secrets, SCA)</option>
+                  <option value="WEB_APPLICATION">Live Web Application (DAST, TLS, HTTP Headers)</option>
+                  <option value="API_ENDPOINT">OpenAPI / Swagger Specification (API Security Audit)</option>
+                  <option value="CONTAINER_IMAGE">Container Image (OSV Container Audit)</option>
+                </select>
+                <p className="text-[11px] text-slate-400">
+                  {newAssetType === 'REPOSITORY' && 'Evaluates Semgrep SAST, Gitleaks secrets, and OSV package dependencies.'}
+                  {newAssetType === 'WEB_APPLICATION' && 'Evaluates OWASP ZAP active scanning and TLS configuration with SSRF defenses.'}
+                  {newAssetType === 'API_ENDPOINT' && 'Evaluates OpenAPI / Swagger specs for unauthenticated mutations, HTTP URLs, and CORS.'}
+                  {newAssetType === 'CONTAINER_IMAGE' && 'Audits container image dependencies and system package vulnerabilities.'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-300 font-medium">Target Locator / Address</label>
+                <input
+                  type="text"
+                  required
+                  placeholder={
+                    newAssetType === 'REPOSITORY'
+                      ? 'https://github.com/org/repo or local/path'
+                      : newAssetType === 'WEB_APPLICATION'
+                      ? 'https://app.example.com'
+                      : newAssetType === 'API_ENDPOINT'
+                      ? 'https://api.example.com/openapi.json or /path/spec.json'
+                      : 'docker.io/library/app:latest'
+                  }
+                  value={newAssetLocator}
+                  onChange={(e) => setNewAssetLocator(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono placeholder-slate-600 focus:border-amber-400 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-medium">Environment</label>
+                  <select
+                    value={newAssetEnvironment}
+                    onChange={(e) => setNewAssetEnvironment(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                  >
+                    <option value="PRODUCTION">Production</option>
+                    <option value="STAGING">Staging</option>
+                    <option value="DEVELOPMENT">Development</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-medium">Criticality</label>
+                  <select
+                    value={newAssetCriticality}
+                    onChange={(e) => setNewAssetCriticality(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                  >
+                    <option value="CRITICAL">Critical</option>
+                    <option value="HIGH">High</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LOW">Low</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-medium">Exposure</label>
+                  <select
+                    value={newAssetExposure}
+                    onChange={(e) => setNewAssetExposure(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                  >
+                    <option value="INTERNET_FACING">Internet-Facing</option>
+                    <option value="INTERNAL">Internal</option>
+                    <option value="RESTRICTED">Restricted</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAssetModal(false)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAsset}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition disabled:opacity-50 flex items-center space-x-1.5 shadow-lg shadow-amber-500/20"
+                >
+                  {isSubmittingAsset ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Registering...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Register & Add to Scope</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-[#06080F] py-4 text-center text-xs text-slate-500">

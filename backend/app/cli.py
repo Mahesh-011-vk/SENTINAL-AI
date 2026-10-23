@@ -13,7 +13,7 @@ from typing import Optional
 
 from app.database import SessionLocal
 from app.models.project import Project
-from app.models.asset import Asset
+from app.models.asset import Asset, AssetType, EnvironmentType, BusinessCriticality, AssetExposure
 from app.models.scan import ScanType, ScanStatus
 from app.scanners.manager import ScannerManager
 from app.services.policy_engine import PolicyEngine, PolicyConfig, PolicyStatus
@@ -116,6 +116,84 @@ def cmd_list_findings(args):
         db.close()
 
 
+def cmd_add_asset(args):
+    """Registers a new application asset to a project."""
+    db = SessionLocal()
+    try:
+        project = db.query(Project).filter(Project.id == args.project).first()
+        if not project:
+            project = db.query(Project).filter(Project.name.ilike(f"%{args.project}%")).first()
+        if not project:
+            print(f"Error: Project '{args.project}' not found.", file=sys.stderr)
+            sys.exit(2)
+
+        type_map = {
+            "REPO": AssetType.REPOSITORY,
+            "REPOSITORY": AssetType.REPOSITORY,
+            "WEB": AssetType.WEB_APPLICATION,
+            "WEB_APPLICATION": AssetType.WEB_APPLICATION,
+            "API": AssetType.API_ENDPOINT,
+            "API_ENDPOINT": AssetType.API_ENDPOINT,
+            "CONTAINER": AssetType.CONTAINER_IMAGE,
+            "CONTAINER_IMAGE": AssetType.CONTAINER_IMAGE,
+        }
+        chosen_type = type_map.get(args.type.upper(), AssetType.REPOSITORY)
+
+        asset = Asset(
+            project_id=project.id,
+            name=args.name,
+            asset_type=chosen_type,
+            target_locator=args.locator.strip(),
+            environment=EnvironmentType[args.env.upper()] if hasattr(EnvironmentType, args.env.upper()) else EnvironmentType.PRODUCTION,
+            business_criticality=BusinessCriticality[args.criticality.upper()] if hasattr(BusinessCriticality, args.criticality.upper()) else BusinessCriticality.HIGH,
+            exposure=AssetExposure[args.exposure.upper()] if hasattr(AssetExposure, args.exposure.upper()) else AssetExposure.INTERNET_FACING,
+            is_active=True
+        )
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+
+        print("=" * 65)
+        print("APPLICATION ASSET REGISTERED SUCCESSFULLY")
+        print("=" * 65)
+        print(f"Asset ID:      {asset.id}")
+        print(f"Project:       {project.name}")
+        print(f"Name:          {asset.name}")
+        print(f"Type:          {asset.asset_type.value}")
+        print(f"Target:        {asset.target_locator}")
+        print(f"Environment:   {asset.environment.value}")
+        print(f"Criticality:   {asset.business_criticality.value}")
+        print(f"Exposure:      {asset.exposure.value}")
+        print("=" * 65)
+        print("You can now launch scans against this asset via CLI or the Web Console.")
+        sys.exit(0)
+    finally:
+        db.close()
+
+
+def cmd_list_assets(args):
+    """Lists registered application assets for a project."""
+    db = SessionLocal()
+    try:
+        project = db.query(Project).filter(Project.id == args.project).first()
+        if not project:
+            project = db.query(Project).filter(Project.name.ilike(f"%{args.project}%")).first()
+        if not project:
+            print(f"Error: Project '{args.project}' not found.", file=sys.stderr)
+            sys.exit(2)
+
+        print(f"\nRegistered Application Assets for Project: {project.name}")
+        print(f"{'TYPE':<16} {'ENVIRONMENT':<13} {'CRITICALITY':<13} {'NAME':<24} {'TARGET LOCATOR'}")
+        print("-" * 90)
+        for a in project.assets:
+            print(f"{a.asset_type.value:<16} {a.environment.value:<13} {a.business_criticality.value:<13} {a.name:<24} {a.target_locator}")
+        print("-" * 90)
+        print(f"Total: {len(project.assets)} registered asset(s)")
+        sys.exit(0)
+    finally:
+        db.close()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="sentinel",
@@ -145,6 +223,22 @@ def main():
     p_list = subparsers.add_parser("list-findings", help="List security findings for a project")
     p_list.add_argument("--project", "-p", required=True, help="Project UUID or name substring")
     p_list.set_defaults(func=cmd_list_findings)
+
+    # 4. Add asset
+    p_add_asset = subparsers.add_parser("add-asset", help="Register a new application asset to be scanned")
+    p_add_asset.add_argument("--project", "-p", required=True, help="Project UUID or name substring")
+    p_add_asset.add_argument("--name", "-n", required=True, help="Application or service name")
+    p_add_asset.add_argument("--type", "-t", required=True, choices=["REPO", "WEB", "API", "CONTAINER"], help="Asset type")
+    p_add_asset.add_argument("--locator", "-l", required=True, help="Target URL, Git repository, or spec file path")
+    p_add_asset.add_argument("--env", default="PRODUCTION", choices=["PRODUCTION", "STAGING", "DEVELOPMENT"], help="Environment")
+    p_add_asset.add_argument("--criticality", default="HIGH", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"], help="Business criticality")
+    p_add_asset.add_argument("--exposure", default="INTERNET_FACING", choices=["INTERNET_FACING", "INTERNAL", "RESTRICTED"], help="Exposure")
+    p_add_asset.set_defaults(func=cmd_add_asset)
+
+    # 5. List assets
+    p_list_assets = subparsers.add_parser("list-assets", help="List all registered application assets")
+    p_list_assets.add_argument("--project", "-p", required=True, help="Project UUID or name substring")
+    p_list_assets.set_defaults(func=cmd_list_assets)
 
     args = parser.parse_args()
     args.func(args)

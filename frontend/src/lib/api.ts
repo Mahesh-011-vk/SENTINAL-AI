@@ -160,6 +160,31 @@ export const apiClient = {
     return this.request<Asset[]>(`/projects/${projectId}/assets`);
   },
 
+  async createAsset(projectId: string, data: {
+    name: string;
+    asset_type: string;
+    target_locator: string;
+    environment: string;
+    business_criticality: string;
+    exposure: string;
+  }) {
+    return this.request<Asset>(`/projects/${projectId}/assets`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async authorizeAsset(assetId: string, data: {
+    scope_description: string;
+    allowed_domains: string;
+    expires_at: string;
+  }) {
+    return this.request<any>(`/assets/${assetId}/authorizations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   async getFindings(projectId: string, filterStatus?: string) {
     const query = filterStatus ? `?status=${filterStatus}` : '';
     return this.request<Finding[]>(`/projects/${projectId}/findings${query}`);
