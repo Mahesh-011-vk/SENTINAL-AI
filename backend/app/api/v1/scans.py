@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
+from app.database import SessionLocal
 from app.models.user import User, UserRole
 from app.models.project import Project
 from app.models.asset import Asset, AssetType, AssetAuthorization
@@ -10,8 +10,18 @@ from app.models.scan import ScanJob, ScanType, ScanStatus, ScannerExecution
 from app.schemas.scan import ScanJobCreate, ScanJobResponse
 from app.core.permissions import verify_tenant_isolation, require_role_permission
 from app.services.audit_service import AuditService
+from app.scanners.manager import scanner_manager
 
 router = APIRouter()
+
+
+def run_background_scan(scan_job_id: str):
+    """Background task worker executing scanner orchestration in isolated DB session."""
+    db = SessionLocal()
+    try:
+        scanner_manager.execute_scan_job(db, scan_job_id)
+    finally:
+        db.close()
 
 
 @router.post("/projects/{project_id}/scans", response_model=ScanJobResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -19,12 +29,15 @@ def trigger_scan(
     project_id: str,
     payload: ScanJobCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
+    execute_sync: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Trigger an asynchronous security assessment job.
     Enforces authorization check for web/DAST scans.
+    Supports synchronous execution for fast testing.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -74,6 +87,11 @@ def trigger_scan(
         user_agent=get_user_agent(request),
         details={"scan_type": job.scan_type.value, "asset_id": asset.id}
     )
+
+    if execute_sync:
+        job = scanner_manager.execute_scan_job(db, job.id)
+    else:
+        background_tasks.add_task(run_background_scan, job.id)
 
     return job
 

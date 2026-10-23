@@ -7,7 +7,10 @@ from app.api.v1 import (
     scans,
     findings,
     risk,
-    audit
+    audit,
+    ai,
+    reports,
+    remediation
 )
 
 api_router = APIRouter()
@@ -20,3 +23,6 @@ api_router.include_router(scans.router, tags=["Assessment Orchestration"])
 api_router.include_router(findings.router, tags=["Vulnerability Intelligence"])
 api_router.include_router(risk.router, prefix="/risk", tags=["Deterministic Risk Engine"])
 api_router.include_router(audit.router, prefix="/audit", tags=["Security Audit Trail"])
+api_router.include_router(ai.router, prefix="/ai", tags=["AI Security Intelligence"])
+api_router.include_router(reports.router, tags=["Reporting & Compliance"])
+api_router.include_router(remediation.router, tags=["Remediation & Verification"])
