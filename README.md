@@ -1,7 +1,7 @@
 # SentinelAI — Application Security Intelligence Platform
 
 <p align="center">
-  <img src="frontend/public/hero-shield-art.png" alt="SentinelAI 3D Shield Security Pedestal" width="480" style="border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,0.12);" />
+  <img src="frontend/public/hero-shield-art.png" alt="SentinelAI 3D Shield Security Pedestal" width="460" style="border-radius: 20px; box-shadow: 0 16px 40px rgba(0,0,0,0.12);" />
 </p>
 
 <p align="center">
@@ -10,20 +10,32 @@
 </p>
 
 <p align="center">
-  <a href="https://frontend-delta-one-29.vercel.app"><img src="https://img.shields.io/badge/Vercel-Live%20Demo-black?style=flat&logo=vercel" alt="Vercel Live Demo" /></a>
-  <a href="https://github.com/Mahesh-011-vk/SENTINAL-AI/actions/workflows/ci.yml"><img src="https://github.com/Mahesh-011-vk/SENTINAL-AI/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline Status" /></a>
-  <img src="https://img.shields.io/badge/Tests-41%2F41%20Passed-10B981?style=flat&logo=pytest" alt="Pytest Status" />
-  <img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-3776AB?style=flat&logo=python&logoColor=white" alt="Python Version" />
-  <img src="https://img.shields.io/badge/Next.js-16.4-000000?style=flat&logo=next.js&logoColor=white" alt="Next.js" />
-  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/License-MIT-D4AF37?style=flat" alt="MIT License" />
+  <a href="https://frontend-delta-one-29.vercel.app"><img src="https://img.shields.io/badge/Vercel-Live%20Demo-black?style=for-the-badge&logo=vercel" alt="Vercel Live Demo" /></a>
+  <a href="https://github.com/Mahesh-011-vk/SENTINAL-AI/actions"><img src="https://img.shields.io/badge/CI%20Pipeline-Passing-10B981?style=for-the-badge&logo=github-actions&logoColor=white" alt="CI Status" /></a>
+  <img src="https://img.shields.io/badge/Tests-41%2F41%20Passed-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest Status" />
+  <img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" />
+  <img src="https://img.shields.io/badge/Next.js-16.4-000000?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/License-MIT-D4AF37?style=for-the-badge" alt="MIT License" />
 </p>
+
+---
+
+## 🌐 Live Cloud Demo
+
+SentinelAI is deployed live on Vercel with an interactive demo environment:
+
+| Service | Endpoint | Description |
+| :--- | :--- | :--- |
+| **Production Web Console** | [https://frontend-delta-one-29.vercel.app](https://frontend-delta-one-29.vercel.app) | Full claymorphic security dashboard with seeded vulnerability data, AI advisory drawer, and policy gates |
+| **Interactive API Docs** | `http://localhost:8000/docs` | OpenAPI / Swagger UI testbed (when running backend locally) |
+| **GitHub Repository** | [https://github.com/Mahesh-011-vk/SENTINAL-AI](https://github.com/Mahesh-011-vk/SENTINAL-AI) | Source code, test suites, and CI/CD workflows |
 
 ---
 
 ## 1. Executive Overview
 
-**SentinelAI** is a production-grade, evidence-driven application security intelligence platform that combines conventional security scanners, deterministic policy-as-code engines, cryptographic asset authorization boundaries, bounded AI remediation assistance, and automated fix verification.
+**SentinelAI** is an enterprise-grade, evidence-driven application security intelligence platform that unifies static AST analysis, secret detection, software composition analysis (SCA), dynamic assessment (DAST), deterministic risk scoring, policy-as-code build gates, bounded AI remediation, and sandbox fix verification into a single glassmorphic security console.
 
 > ### 🛡️ Core Architectural Principle
 > **AI may interpret evidence, but it must never manufacture evidence.**  
@@ -35,14 +47,14 @@
 
 ### 🔍 Multi-Engine Deterministic Scanners
 - **Semgrep SAST:** Static code analysis parsing ASTs to detect code injection (SQLi, command injection, path traversal) and insecure deserialization.
-- **Gitleaks Secret Scanner:** High-entropy regex engine detecting hardcoded API keys, private certificates, AWS/GCP/Slack credentials, and JWTs.
+- **Gitleaks Secret Scanner:** High-entropy Shannon entropy & regex engine detecting hardcoded API keys, private certificates, AWS/GCP credentials, and JWTs.
 - **OSV-Scanner / pip-audit:** Software composition analysis checking package manifests against Google OSV and GitHub Security Advisories for known CVEs.
 - **OWASP ZAP Dynamic (DAST):** Active web vulnerability assessment enforcing mandatory target authorization records and strict SSRF defenses.
-- **Security Config & TLS Inspector:** Audits HTTP security response headers (`HSTS`, `CSP`, `X-Content-Type-Options`) and SSL/TLS cipher suites.
+- **Security Config & TLS Inspector:** Audits HTTP response headers (`HSTS`, `CSP`, `X-Content-Type-Options`) and SSL/TLS cipher suites.
 - **OpenAPI Spec Security Auditor:** Validates OpenAPI/Swagger schemas for broken object-level authorization (BOLA), unauthenticated admin endpoints, and permissive CORS.
 
 ### 📐 Deterministic Risk Engine (v1.0.0)
-Replaces arbitrary AI hallucinations with a versioned, explainable mathematical scoring formula ($0.0 \to 100.0$):
+Replaces arbitrary AI hallucinations with an explainable mathematical scoring formula ($0.0 \to 100.0$):
 $$\text{Risk Score} = \min\left(100.0, \, \left(\text{CVSS} \times 10 \times W_{\text{crit}} \times W_{\text{exp}} \times W_{\text{exploit}}\right) + \text{Penalty}_{\text{secret}}\right)$$
 - **Asset Criticality Weight ($W_{\text{crit}}$):** `CRITICAL` (1.4), `HIGH` (1.2), `MEDIUM` (1.0), `LOW` (0.8).
 - **Network Exposure Weight ($W_{\text{exp}}$):** `INTERNET_FACING` (1.3), `INTERNAL` (1.0), `RESTRICTED` (0.7).
@@ -95,9 +107,6 @@ $$\text{Risk Score} = \min\left(100.0, \, \left(\text{CVSS} \times 10 \times W_{
 ---
 
 ## 4. Quick Start & Execution
-
-> 🌐 **Live Cloud Deployment (Vercel):**  
-> Explore the live SentinelAI Security Console at [https://frontend-delta-one-29.vercel.app](https://frontend-delta-one-29.vercel.app). Pre-configured with offline-resilient interactive demo data and sandbox security views.
 
 ### Prerequisites
 - **Python:** 3.11, 3.12, or 3.13
@@ -155,6 +164,23 @@ This starts:
 
 ---
 
+### Method C: Deploying Frontend to Vercel
+
+The frontend is fully configured for deployment on [Vercel](https://vercel.com):
+
+1. **Option 1 — Using Vercel CLI:**
+   ```bash
+   cd frontend
+   npx vercel --prod
+   ```
+2. **Option 2 — Connecting via GitHub:**
+   - Import `Mahesh-011-vk/SENTINAL-AI` in the Vercel Dashboard.
+   - Set **Root Directory** to `frontend`.
+   - Set **Framework Preset** to `Next.js`.
+   - (Optional) Add `NEXT_PUBLIC_API_URL` pointing to your deployed FastAPI backend URL.
+
+---
+
 ## 5. DevSecOps CLI Commands
 
 SentinelAI includes a CLI in `backend/app/cli.py` for CI/CD scripting:
@@ -209,7 +235,7 @@ The seeded database contains three distinct personas for testing role-based acce
 
 ## 7. Automated Test Suite & CI
 
-The platform includes 41 automated unit, integration, and security test cases:
+The platform includes **41 automated unit, integration, and security test cases**:
 
 ```bash
 # Run full automated test suite
@@ -235,7 +261,26 @@ PYTHONPATH=backend python backend/tests/verify_e2e.py
 
 ---
 
-## 8. Repository Layout
+## 8. REST API Reference
+
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/login` | Authenticate and obtain JWT Bearer token | No |
+| `GET` | `/api/v1/auth/me` | Fetch authenticated user profile & tenant | Yes |
+| `GET` | `/api/v1/projects` | List projects & tenant scoping | Yes |
+| `GET` | `/api/v1/assets` | List registered assets with authorization status | Yes |
+| `POST` | `/api/v1/assets` | Register a new target asset into scope | Yes (Admin) |
+| `GET` | `/api/v1/findings` | List unified normalized security findings | Yes |
+| `POST` | `/api/v1/findings/{id}/triage` | Update finding status (`CONFIRMED`, `FALSE_POSITIVE`, etc.) | Yes |
+| `POST` | `/api/v1/ai/findings/{id}/explain` | Request bounded AI remediation guidance | Yes |
+| `POST` | `/api/v1/findings/{id}/verify` | Run sandbox verification for proposed fix | Yes |
+| `POST` | `/api/v1/policy/evaluate` | Evaluate policy-as-code build gate status | Yes |
+| `GET` | `/api/v1/sbom` | Export CycloneDX 1.5 compliant SBOM | Yes |
+| `GET` | `/api/v1/audit` | Fetch immutable audit trail records | Yes (Auditor/Admin) |
+
+---
+
+## 9. Repository Layout
 
 ```
 SENTINELAI/
@@ -260,6 +305,7 @@ SENTINELAI/
 │   ├── src/
 │   │   ├── app/                  # Next.js App Router (Layout & Pages)
 │   │   └── lib/api.ts            # Type-safe API client & interfaces
+│   ├── vercel.json               # Vercel deployment configuration
 │   └── package.json              # Node.js dependencies (Next.js 16, Lucide)
 ├── docs/                         # Hardening & architectural documentation
 ├── docker-compose.yml            # Multi-container orchestration
@@ -271,12 +317,12 @@ SENTINELAI/
 
 ---
 
-## 9. Security & Responsible Disclosure
+## 10. Security & Responsible Disclosure
 
 Please review [SECURITY.md](SECURITY.md) for vulnerability reporting guidelines. To report security vulnerabilities, contact **security@sentinelai.io**.
 
 ---
 
-## 10. License
+## 11. License
 
 This project is licensed under the [MIT License](LICENSE).
