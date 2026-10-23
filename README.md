@@ -97,22 +97,44 @@ PYTHONPATH=backend python3 backend/app/seed.py
 
 ### 4. Run Automated Pytest Suite
 ```bash
-# Runs 26 unit and integration tests (auth, RBAC, SSRF, secret redaction, risk engine)
-pytest -v
+# Runs 41 unit and integration tests (auth, RBAC, SSRF, secret redaction, risk engine, policy gates, SBOM, OpenAPI)
+PYTHONPATH=backend pytest -v
 ```
 
-### 5. Run End-to-End Verification Flow
+### 5. Run End-to-End Verification Pipeline
 ```bash
 PYTHONPATH=backend python3 backend/tests/verify_e2e.py
 ```
 
-### 6. Start the API Gateway
+### 6. DevSecOps CLI Automation
+SentinelAI includes a native CLI for CI/CD pipelines:
+```bash
+# 1. Evaluate CI/CD Build Gate Policy (exit 0 on pass, exit 1 on fail)
+python -m app.cli policy-check --project "Nexus" --max-critical 0 --max-high 2
+
+# 2. Export CycloneDX 1.5 JSON SBOM
+python -m app.cli export-sbom --project "Nexus" --output cyclonedx.json
+
+# 3. List active vulnerabilities in tabular format
+python -m app.cli list-findings --project "Nexus"
+```
+
+### 7. Start the Backend API Gateway
 ```bash
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Interactive OpenAPI documentation will be available at:  
-👉 **http://localhost:8000/api/v1/docs**
+👉 **http://localhost:8000/docs**
+
+### 8. Start the Next.js Security Console
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Interactive Security Console will be available at:  
+👉 **http://localhost:3000**
 
 ---
 
@@ -133,16 +155,20 @@ Interactive OpenAPI documentation will be available at:
 - **High-Entropy Secret Redaction:** Regex and Shannon-entropy detection masks AWS access keys, GitHub PATs, private keys, database credentials, Slack tokens, and JWTs before database write.
 - **Mandatory Asset Authorization:** Web and DAST scans are strictly blocked with HTTP 403 Forbidden unless a cryptographically signed, unexpired `AssetAuthorizationRecord` exists.
 - **Deterministic Risk Engine v1.0.0:** Transparent, versioned formula scoring findings from 0.0 to 100.0 with full factor provenance.
+- **Software Bill of Materials (SBOM):** Standard CycloneDX 1.5 JSON export mapping all software components and vulnerabilities.
+- **Deterministic Policy-as-Code:** 6 customizable security build gate rules for CI/CD enforcement.
 
 ---
 
 ## 6. Implementation Progress & Acceptance Status
 
-- [x] **Phase 1: Architecture, Trust Boundaries & Threat Model** (Complete)
-- [x] **Phase 2: Backend Foundation, Auth, RBAC & Multi-Tenant Isolation** (Complete & Verified)
-- [x] **Phase 3: Database Models, Alembic Migrations & Audit Trail** (Complete & Verified)
-- [x] **Phase 4: Target Security, SSRF & Archive Validation** (Complete & Verified)
-- [x] **Phase 5: Secret Redaction & Deterministic Risk Engine v1.0.0** (Complete & Verified)
-- [ ] **Phase 6: Dedicated Scanner Adapters & Celery Worker Sandbox** (In Progress)
-- [ ] **Phase 7: Next.js Presentation Dashboard** (Scheduled)
-- [ ] **Phase 8: Multi-Agent AI & Verification Pipeline** (Scheduled)
+- [x] **Phase 1: Architecture, Trust Boundaries & Threat Model** (Complete & Documented)
+- [x] **Phase 2: Backend Foundation, Auth, RBAC & Multi-Tenant Isolation** (Complete & Tested)
+- [x] **Phase 3: Database Models, Alembic Migrations & Audit Trail** (Complete & Migrated)
+- [x] **Phase 4: Target Security, SSRF & Archive Validation** (Complete & Hardened)
+- [x] **Phase 5: Secret Redaction & Deterministic Risk Engine v1.0.0** (Complete & Scored)
+- [x] **Phase 6: Dedicated Scanner Adapters (Semgrep, Gitleaks, OSV, ZAP, Config, OpenAPI)** (Complete & Tested)
+- [x] **Phase 7: Next.js Presentation Dashboard & Console** (Complete & Verified in Browser)
+- [x] **Phase 8: Multi-Agent AI Remediation & Fix Verification Pipeline** (Complete & Verified)
+- [x] **Phase 9: Compliance & Executive Reporting Engine (PDF/JSON)** (Complete & Generated)
+- [x] **Phase 10: Policy-as-Code Build Gates, CycloneDX SBOM & DevSecOps CLI** (Complete & Operational)
