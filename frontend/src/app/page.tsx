@@ -31,7 +31,7 @@ import { apiClient, User, Project, Asset, Finding, ScanJob, AuditLog, AIExplanat
 
 export default function SentinelConsole() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'assets' | 'scans' | 'reports' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'assets' | 'scans' | 'reports' | 'audit' | 'policy'>('overview');
   
   // Data State
   const [projects, setProjects] = useState<Project[]>([]);
@@ -49,6 +49,22 @@ export default function SentinelConsole() {
   const [selectedAssetId, setSelectedAssetId] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Policy & SBOM State
+  const [policyResult, setPolicyResult] = useState<any>(null);
+  const [isEvaluatingPolicy, setIsEvaluatingPolicy] = useState(false);
+  const [maxCritical, setMaxCritical] = useState<number>(0);
+  const [maxHigh, setMaxHigh] = useState<number>(2);
+  const [maxRiskScore, setMaxRiskScore] = useState<number>(60);
+  const [allowSecrets, setAllowSecrets] = useState<boolean>(false);
+  const [maxCvss, setMaxCvss] = useState<number>(8.5);
+  const [enforceTls, setEnforceTls] = useState<boolean>(true);
+  const [sbomData, setSbomData] = useState<any>(null);
+  const [isGeneratingSbom, setIsGeneratingSbom] = useState(false);
+
+  // Fix verification state
+  const [isVerifyingFix, setIsVerifyingFix] = useState(false);
+  const [verificationOutcome, setVerificationOutcome] = useState<any>(null);
 
   // Filter state
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
@@ -201,6 +217,73 @@ export default function SentinelConsole() {
     }
   };
 
+  const handleEvaluatePolicy = async () => {
+    if (!selectedProject) return;
+    setIsEvaluatingPolicy(true);
+    try {
+      const payload = {
+        max_critical_findings: maxCritical,
+        max_high_findings: maxHigh,
+        max_risk_score: maxRiskScore,
+        allow_unresolved_secrets: allowSecrets,
+        max_cvss_threshold: maxCvss,
+        enforce_production_tls: enforceTls,
+      };
+      const res = await apiClient.evaluatePolicy(selectedProject.id, payload);
+      setPolicyResult(res);
+      showToast(`Build Gate Policy Evaluated: ${res.overall_status}`);
+    } catch (e: any) {
+      showToast(`Policy evaluation failed: ${e.message}`);
+    } finally {
+      setIsEvaluatingPolicy(false);
+    }
+  };
+
+  const handleGenerateSBOM = async () => {
+    if (!selectedProject) return;
+    setIsGeneratingSbom(true);
+    try {
+      const res = await apiClient.getSBOM(selectedProject.id);
+      setSbomData(res);
+      showToast('CycloneDX 1.5 JSON SBOM Generated');
+    } catch (e: any) {
+      showToast(`SBOM generation failed: ${e.message}`);
+    } finally {
+      setIsGeneratingSbom(false);
+    }
+  };
+
+  const handleDownloadSBOM = () => {
+    if (!sbomData || !selectedProject) return;
+    const blob = new Blob([JSON.stringify(sbomData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cyclonedx-sbom-${selectedProject.name.toLowerCase().replace(/\s+/g, '-')}.json`;
+    a.click();
+    showToast('CycloneDX SBOM JSON downloaded');
+  };
+
+  const handleVerifyFix = async (finding: Finding) => {
+    if (!selectedProject) return;
+    setIsVerifyingFix(true);
+    setVerificationOutcome(null);
+    try {
+      // 1. Run a fresh verification scan on the asset
+      const scanRes = await apiClient.triggerScan(selectedProject.id, finding.asset_id, finding.category === 'SAST' ? 'SAST' : 'FULL');
+      // 2. Call verifyFindingFix with the new scan ID
+      const verRes = await apiClient.verifyFindingFix(finding.id, scanRes.id);
+      setVerificationOutcome(verRes);
+      // 3. Refresh project details
+      await refreshProjectDetails(selectedProject.id);
+      showToast(`Fix Verification Complete: ${verRes.outcome}`);
+    } catch (e: any) {
+      showToast(`Fix verification failed: ${e.message}`);
+    } finally {
+      setIsVerifyingFix(false);
+    }
+  };
+
   // Metrics computation
   const criticalCount = findings.filter((f) => f.internal_risk_level === 'CRITICAL').length;
   const highCount = findings.filter((f) => f.internal_risk_level === 'HIGH').length;
@@ -304,6 +387,7 @@ export default function SentinelConsole() {
             { id: 'findings', label: `Vulnerabilities (${findings.length})`, icon: Bug },
             { id: 'assets', label: `Assets & Scope (${assets.length})`, icon: Layers },
             { id: 'scans', label: 'Scan Orchestrator', icon: Terminal },
+            { id: 'policy', label: 'Policy Gates & SBOM', icon: ShieldCheck },
             { id: 'reports', label: 'Reports & Exports', icon: FileText },
             { id: 'audit', label: 'Audit Trail', icon: Key },
           ].map((tab) => {
@@ -669,6 +753,35 @@ export default function SentinelConsole() {
                       </div>
                     </div>
                   )}
+
+                  {/* Automated Fix Verification Agent Action */}
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <button
+                      onClick={() => handleVerifyFix(selectedFinding)}
+                      disabled={isVerifyingFix}
+                      className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs transition flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                    >
+                      <CheckCircle className="w-4 h-4 text-emerald-200" />
+                      <span>{isVerifyingFix ? 'Re-scanning & Verifying Fix...' : 'Verify Fix via Automated Re-Scan'}</span>
+                    </button>
+
+                    {verificationOutcome && (
+                      <div className={`p-3 rounded-lg border text-xs space-y-1.5 animate-fade-in ${
+                        verificationOutcome.outcome === 'VERIFIED_RESOLVED'
+                          ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                          : 'bg-red-950/30 border-red-500/40 text-red-300'
+                      }`}>
+                        <div className="font-bold flex items-center justify-between">
+                          <span>Verification Outcome: {verificationOutcome.outcome}</span>
+                          <span className="text-[10px] font-mono text-slate-400">{verificationOutcome.verified_at?.slice(0, 19).replace('T', ' ')}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-300">{verificationOutcome.comparison_notes}</p>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          Status Transition: &rarr; <b>{verificationOutcome.new_finding_status}</b>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="glass-panel p-8 rounded-xl text-center text-slate-400 text-sm">
@@ -735,6 +848,255 @@ export default function SentinelConsole() {
                   <div className="text-[11px] text-slate-400">Argument array execution &middot; Zero shell injection &middot; Timeout bounded</div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: POLICY-AS-CODE BUILD GATES & CYCLONEDX SBOM */}
+        {activeTab === 'policy' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">Policy-as-Code Build Gates & CycloneDX SBOM</h3>
+                <p className="text-xs text-slate-400">Evaluate deterministic CI/CD release policies and generate standard CycloneDX 1.5 Software Bill of Materials.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Build Gate Policy Config & Evaluator (7 cols) */}
+              <div className="lg:col-span-7 glass-panel p-6 rounded-xl space-y-5 border border-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <ShieldCheck className="w-5 h-5 text-amber-400" />
+                    <span className="font-bold text-white text-base">CI/CD Build Gate Policy Engine</span>
+                  </div>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    Engine v1.0.0
+                  </span>
+                </div>
+
+                {/* Form Controls */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="text-slate-300 font-medium">Max Critical Findings Permitted</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxCritical}
+                      onChange={(e) => setMaxCritical(parseInt(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-slate-300 font-medium">Max High Findings Permitted</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxHigh}
+                      onChange={(e) => setMaxHigh(parseInt(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-slate-300 font-medium">Max Overall Risk Score Ceiling (0-100)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={maxRiskScore}
+                      onChange={(e) => setMaxRiskScore(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-slate-300 font-medium">Maximum Single CVSS Threshold</label>
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      max={10}
+                      value={maxCvss}
+                      onChange={(e) => setMaxCvss(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-3 pt-2">
+                    <input
+                      type="checkbox"
+                      id="allowSec"
+                      checked={allowSecrets}
+                      onChange={(e) => setAllowSecrets(e.target.checked)}
+                      className="rounded border-slate-800 text-amber-500 focus:ring-0"
+                    />
+                    <label htmlFor="allowSec" className="text-slate-300 cursor-pointer">
+                      Permit unresolved secrets (Default: False)
+                    </label>
+                  </div>
+
+                  <div className="flex items-center space-x-3 pt-2">
+                    <input
+                      type="checkbox"
+                      id="enforceTls"
+                      checked={enforceTls}
+                      onChange={(e) => setEnforceTls(e.target.checked)}
+                      className="rounded border-slate-800 text-amber-500 focus:ring-0"
+                    />
+                    <label htmlFor="enforceTls" className="text-slate-300 cursor-pointer">
+                      Enforce TLS on Public Assets
+                    </label>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleEvaluatePolicy}
+                  disabled={isEvaluatingPolicy}
+                  className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                >
+                  {isEvaluatingPolicy ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Evaluating Security Gate Rules...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      <span>Evaluate Build Gate Policy</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Evaluation Results */}
+                {policyResult && (
+                  <div className="space-y-4 pt-3 border-t border-slate-800 animate-fade-in">
+                    <div className={`p-4 rounded-xl border flex items-center justify-between ${
+                      policyResult.overall_status === 'PASSED'
+                        ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
+                        : policyResult.overall_status === 'WARNING'
+                        ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
+                        : 'bg-red-950/20 border-red-500/40 text-red-300'
+                    }`}>
+                      <div className="flex items-center space-x-3">
+                        {policyResult.overall_status === 'PASSED' ? (
+                          <ShieldCheck className="w-7 h-7 text-emerald-400" />
+                        ) : (
+                          <ShieldAlert className="w-7 h-7 text-red-400" />
+                        )}
+                        <div>
+                          <div className="font-extrabold text-base tracking-wide">
+                            POLICY GATE: {policyResult.overall_status}
+                          </div>
+                          <div className="text-xs text-slate-300">{policyResult.summary}</div>
+                        </div>
+                      </div>
+                      <div className="text-right text-xs font-mono">
+                        <div>Blocking: <b className="text-white">{policyResult.blocking_findings_count}</b></div>
+                        <div className="text-slate-400 text-[10px]">Evaluated: {policyResult.total_active_findings} findings</div>
+                      </div>
+                    </div>
+
+                    {/* Rules list */}
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">Policy Rules Evaluation</div>
+                      <div className="space-y-1.5">
+                        {policyResult.rule_results?.map((r: any) => (
+                          <div key={r.rule_id} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
+                            <div className="space-y-0.5">
+                              <div className="font-semibold text-slate-200">{r.title}</div>
+                              <div className="text-[11px] text-slate-400">{r.message}</div>
+                            </div>
+                            <span className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                              r.status === 'PASS'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : r.status === 'WARN'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                              {r.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CycloneDX SBOM Generator & Preview (5 cols) */}
+              <div className="lg:col-span-5 glass-panel p-6 rounded-xl space-y-5 border border-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-5 h-5 text-emerald-400" />
+                    <span className="font-bold text-white text-base">CycloneDX 1.5 SBOM</span>
+                  </div>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    Standard Spec
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Generate industry-standard Software Bill of Materials (SBOM) cataloging software components, container dependencies, licenses, and mapped vulnerability advisories.
+                </p>
+
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleGenerateSBOM}
+                    disabled={isGeneratingSbom}
+                    className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                  >
+                    {isGeneratingSbom ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Generating SBOM...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Generate SBOM</span>
+                      </>
+                    )}
+                  </button>
+
+                  {sbomData && (
+                    <button
+                      onClick={handleDownloadSBOM}
+                      className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-lg transition flex items-center space-x-2 border border-slate-700"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download JSON</span>
+                    </button>
+                  )}
+                </div>
+
+                {sbomData ? (
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                        <div className="text-slate-400 text-[11px]">Components</div>
+                        <div className="text-xl font-bold text-white mt-0.5">{sbomData.components?.length || 0}</div>
+                      </div>
+                      <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                        <div className="text-slate-400 text-[11px]">Vulnerabilities</div>
+                        <div className="text-xl font-bold text-amber-400 mt-0.5">{sbomData.vulnerabilities?.length || 0}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-400 font-mono">CycloneDX Schema Preview:</div>
+                      <pre className="bg-[#050811] p-3 rounded-lg border border-slate-800 text-[10px] text-slate-300 font-mono max-h-64 overflow-y-auto">
+                        {JSON.stringify(sbomData, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-500 text-xs">
+                    Click 'Generate SBOM' to produce the CycloneDX 1.5 bill of materials for {selectedProject?.name || 'this project'}.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

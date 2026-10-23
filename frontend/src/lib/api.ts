@@ -215,5 +215,11 @@ export const apiClient = {
       method: 'POST',
       body: config ? JSON.stringify(config) : undefined,
     });
+  },
+
+  async verifyFindingFix(findingId: string, verificationScanId: string) {
+    return this.request<any>(`/findings/${findingId}/verify?verification_scan_id=${verificationScanId}`, {
+      method: 'POST',
+    });
   }
 };
