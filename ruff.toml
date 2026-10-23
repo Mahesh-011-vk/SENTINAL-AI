@@ -1,0 +1,7 @@
+# SentinelAI Ruff Linter Configuration
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E", "F"]
+ignore = ["E501"]

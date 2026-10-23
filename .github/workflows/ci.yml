@@ -33,16 +33,16 @@ jobs:
       - name: Linting and Syntax Validation
         run: |
           pip install ruff
-          ruff check backend/
+          ruff check backend/ --config ruff.toml
 
       - name: Validate Database Migrations
         run: |
           cd backend
           alembic upgrade head
 
-      - name: Run Pytest Test Suite (36+ Tests)
+      - name: Run Pytest Test Suite (41 Tests)
         run: |
-          pytest -v
+          PYTHONPATH=backend pytest -v backend/tests
 
       - name: Run E2E Verification Flow
         run: |
