@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sentinelai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel_user
+      POSTGRES_PASSWORD: sentinel_password
+      POSTGRES_DB: sentinelai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel_user -d sentinelai"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sentinel-internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: sentinelai-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sentinel-internal
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sentinelai-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://sentinel_user:sentinel_password@postgres:5432/sentinelai
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    networks:
+      - sentinel-internal
+      - sentinel-public
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sentinelai-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://sentinel_user:sentinel_password@postgres:5432/sentinelai
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+    networks:
+      - sentinel-internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  sentinel-internal:
+    internal: true
+  sentinel-public:
