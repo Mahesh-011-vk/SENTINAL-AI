@@ -1,8 +1,8 @@
-from typing import Generator, List
+from typing import List
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.models.user import User, UserRole
 from app.core.security import decode_token
 from app.core.permissions import require_role_permission

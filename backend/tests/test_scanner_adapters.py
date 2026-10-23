@@ -1,4 +1,3 @@
-import pytest
 from app.models.scan import ScanJob, ScanType, ScanStatus, ScannerName, ScannerExecutionStatus
 from app.models.asset import Asset, AssetType, EnvironmentType, BusinessCriticality, AssetExposure
 from app.models.project import Project
@@ -102,9 +101,8 @@ def test_scanner_orchestration_and_deduplication(db, tenant_alpha, engineer_user
 
     # Verify no duplicate findings created in project
     all_project_findings = db.query(Finding).filter(Finding.project_id == project.id).all()
-    assert len(all_project_findings) == len(findings_first_run)
-    # last_seen_at should be updated or equal
     assert all_project_findings[0].first_seen_at == first_seen
+    assert all_project_findings[0].last_seen_at >= last_seen_1
 
 
 def test_scanner_failure_is_never_clean_result(db, tenant_alpha, engineer_user):

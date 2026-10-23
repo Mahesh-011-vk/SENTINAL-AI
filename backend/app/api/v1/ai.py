@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.models.user import User
 from app.models.finding import Finding
-from app.schemas.ai import AIExplanationRequest, AIExplanationResponse
+from app.schemas.ai import AIExplanationResponse
 from app.agents.llm_client import llm_client
 from app.core.permissions import verify_tenant_isolation
 from app.services.audit_service import AuditService

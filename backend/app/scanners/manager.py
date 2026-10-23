@@ -1,11 +1,10 @@
-import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.models.scan import ScanJob, ScanStatus, ScanType, ScannerName, ScannerExecution, ScannerExecutionStatus
 from app.models.finding import Finding, FindingEvidence, FindingStatus
 from app.models.asset import Asset
-from app.scanners.base import BaseScannerAdapter, ScannerResult, NormalizedFindingData
+from app.scanners.base import BaseScannerAdapter, ScannerResult
 from app.scanners.sast_semgrep import SemgrepSASTAdapter
 from app.scanners.secret_gitleaks import GitleaksSecretAdapter
 from app.scanners.sca_osv import OSVScannerSCAAdapter

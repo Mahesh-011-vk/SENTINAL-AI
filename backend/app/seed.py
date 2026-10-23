@@ -5,7 +5,7 @@ scans, and evidence-backed findings.
 """
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from app.database import SessionLocal, Base, engine
+from app.database import SessionLocal
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.models.project import Project
@@ -15,10 +15,8 @@ from app.models.finding import (
     Finding,
     FindingCategory,
     FindingSeverity,
-    RiskLevel,
     FindingStatus,
     FindingEvidence,
-    DuplicateGroup,
 )
 from app.core.security import hash_password
 from app.services.risk_service import DeterministicRiskEngine

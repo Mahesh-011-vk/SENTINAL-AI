@@ -1,11 +1,9 @@
-from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.models.user import User, UserRole
 from app.models.finding import Finding, FindingStatus
 from app.models.remediation import RemediationRecord, PatchReviewStatus
-from app.models.verification import VerificationRecord
 from app.schemas.remediation import RemediationCreate, RemediationResponse, PatchReviewRequest
 from app.agents.verification_agent import verification_agent
 from app.core.permissions import verify_tenant_isolation, require_role_permission

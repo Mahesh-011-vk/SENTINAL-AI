@@ -1,4 +1,3 @@
-import pytest
 from app.models.finding import Finding, FindingCategory, FindingSeverity, FindingStatus, FindingEvidence
 from app.models.project import Project
 from app.models.asset import Asset, AssetType, EnvironmentType, BusinessCriticality, AssetExposure

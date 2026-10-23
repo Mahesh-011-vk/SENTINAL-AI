@@ -9,13 +9,10 @@ Provides direct terminal access and CI/CD pipeline automation for:
 import sys
 import json
 import argparse
-from typing import Optional
 
 from app.database import SessionLocal
 from app.models.project import Project
 from app.models.asset import Asset, AssetType, EnvironmentType, BusinessCriticality, AssetExposure
-from app.models.scan import ScanType, ScanStatus
-from app.scanners.manager import ScannerManager
 from app.services.policy_engine import PolicyEngine, PolicyConfig, PolicyStatus
 from app.services.sbom_service import SBOMService
 

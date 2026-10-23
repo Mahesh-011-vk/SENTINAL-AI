@@ -1,7 +1,4 @@
-import os
-import json
-from typing import Dict, Any, Optional
-from pydantic import BaseModel
+from typing import Optional
 from app.config import settings
 from app.schemas.ai import AIExplanationResponse
 
@@ -69,8 +66,8 @@ class LLMClient:
         cat = category.upper()
         if "SAST" in cat or "SQL" in title.upper() or "INJECTION" in title.upper():
             summary = (
-                f"The static analyzer detected unsanitized input interpolation into a database query. "
-                f"Attackers can alter query semantics to bypass authentication or extract sensitive records."
+                "The static analyzer detected unsanitized input interpolation into a database query. "
+                "Attackers can alter query semantics to bypass authentication or extract sensitive records."
             )
             root_cause = (
                 f"Dynamic string formatting or concatenation is used to construct a SQL statement. "

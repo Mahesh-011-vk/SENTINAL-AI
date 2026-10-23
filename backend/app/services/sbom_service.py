@@ -50,8 +50,7 @@ class SBOMService:
 
         for finding in sca_findings:
             # Map dependency coordinates
-            snippet = finding.evidence[0].sanitized_snippet if finding.evidence else ""
-            pkg_name = finding.scanner_rule_id
+            snippet = finding.evidence[0].sanitized_snippet if finding.evidence else "unknown"
             vulnerabilities.append({
                 "id": finding.scanner_rule_id,
                 "source": {"name": finding.scanner_name, "url": "https://osv.dev"},

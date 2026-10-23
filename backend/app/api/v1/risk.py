@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.finding import Finding
 from app.schemas.risk import RiskCalculationInput, RiskExplanationResponse
 from app.services.risk_service import DeterministicRiskEngine
 from app.services.audit_service import AuditService
-from app.core.permissions import verify_tenant_isolation, require_role_permission
+from app.core.permissions import verify_tenant_isolation
 
 router = APIRouter()
 

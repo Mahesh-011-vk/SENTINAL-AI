@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 from app.models.finding import FindingSeverity, RiskLevel
 from app.models.asset import BusinessCriticality, AssetExposure

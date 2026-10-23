@@ -2,12 +2,11 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.project import Project
 from app.models.finding import (
     Finding,
     FindingCategory,
-    FindingSeverity,
     RiskLevel,
     FindingStatus,
     FindingStatusHistory

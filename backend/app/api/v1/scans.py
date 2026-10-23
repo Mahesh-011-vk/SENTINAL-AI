@@ -3,12 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Backgrou
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.database import SessionLocal
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.project import Project
 from app.models.asset import Asset, AssetType, AssetAuthorization
-from app.models.scan import ScanJob, ScanType, ScanStatus, ScannerExecution
+from app.models.scan import ScanJob, ScanType, ScanStatus
 from app.schemas.scan import ScanJobCreate, ScanJobResponse
-from app.core.permissions import verify_tenant_isolation, require_role_permission
+from app.core.permissions import verify_tenant_isolation
 from app.services.audit_service import AuditService
 from app.scanners.manager import scanner_manager
 
@@ -53,7 +53,7 @@ def trigger_scan(
         now = datetime.now(timezone.utc)
         valid_auth = db.query(AssetAuthorization).filter(
             AssetAuthorization.asset_id == asset.id,
-            AssetAuthorization.is_revoked == False,
+            AssetAuthorization.is_revoked.is_(False),
             AssetAuthorization.expires_at > now
         ).first()
 

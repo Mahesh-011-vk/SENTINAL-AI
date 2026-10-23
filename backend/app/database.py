@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Generator
-from sqlalchemy import create_engine, DateTime, String
+from sqlalchemy import create_engine, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, Mapped, mapped_column
 from app.config import settings
 

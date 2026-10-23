@@ -9,7 +9,6 @@ from app.scanners.base import BaseScannerAdapter, ScannerResult, NormalizedFindi
 from app.models.scan import ScannerName, ScannerExecutionStatus
 from app.models.finding import FindingCategory, FindingSeverity
 from app.core.ssrf import TargetSecurityValidator, SSRFValidationError
-from app.core.redactor import SecretRedactor
 
 
 class APISpecAuditAdapter(BaseScannerAdapter):
@@ -230,7 +229,7 @@ class APISpecAuditAdapter(BaseScannerAdapter):
                                 fp = hashlib.sha256(f"API_SPEC:RULE-05:{path_str}:{h_name}".encode()).hexdigest()
                                 findings.append(NormalizedFindingData(
                                     fingerprint=fp,
-                                    title=f"Permissive Wildcard Access-Control-Allow-Origin Defined in Response",
+                                    title="Permissive Wildcard Access-Control-Allow-Origin Defined in Response",
                                     description=f"Endpoint {path_str} specifies wildcard CORS ('*'). This allows cross-origin reading of responses from unauthorized web origins.",
                                     category=FindingCategory.CONFIG,
                                     scanner_name=self.name.value,

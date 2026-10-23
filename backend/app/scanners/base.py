@@ -1,5 +1,4 @@
 import abc
-import time
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 from app.models.scan import ScannerName, ScannerExecutionStatus

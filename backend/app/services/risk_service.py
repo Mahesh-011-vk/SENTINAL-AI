@@ -1,7 +1,6 @@
 from typing import Dict, Any, Tuple
 from app.models.finding import FindingSeverity, RiskLevel
 from app.models.asset import BusinessCriticality, AssetExposure
-from app.config import settings
 
 
 class DeterministicRiskEngine:

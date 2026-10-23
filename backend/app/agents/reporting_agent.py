@@ -1,5 +1,4 @@
 import io
-import json
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
@@ -100,7 +99,7 @@ class ReportingAgent:
         elements = []
 
         # Title & Meta
-        elements.append(Paragraph(f"SentinelAI Security Assessment Report", title_style))
+        elements.append(Paragraph("SentinelAI Security Assessment Report", title_style))
         elements.append(Paragraph(f"Project: <b>{data['project']['name']}</b> | Generated: {data['generated_at'][:19]} UTC", body_style))
         elements.append(Spacer(1, 14))
 

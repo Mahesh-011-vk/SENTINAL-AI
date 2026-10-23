@@ -4,10 +4,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.models.user import User, UserRole
 from app.models.project import Project
-from app.models.asset import Asset, AssetAuthorization, AssetType
+from app.models.asset import Asset, AssetAuthorization
 from app.schemas.asset import (
     AssetCreate,
-    AssetUpdate,
     AssetResponse,
     AssetAuthorizationCreate,
     AssetAuthorizationResponse,

@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, Enum, DateTime, Text, Float, JSON, Integer
+from sqlalchemy import String, ForeignKey, Enum, DateTime, Text, Float, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, TimestampMixin, generate_uuid
 

@@ -112,7 +112,7 @@ class OSVScannerSCAAdapter(BaseScannerAdapter):
                             end_line=1,
                             sanitized_evidence=f"{pkg_name}=={pkg_version} (Advisory: {vuln_id}{fixed_str})"
                         ))
-        except Exception as e:
+        except Exception:
             # If parsing fails or output empty, fallback to clean / parsed error
             pass
 

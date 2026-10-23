@@ -5,7 +5,7 @@ from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.models.user import User, UserRole
 from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
-from app.core.permissions import verify_tenant_isolation, require_role_permission
+from app.core.permissions import verify_tenant_isolation
 from app.services.audit_service import AuditService
 from app.services.sbom_service import sbom_service
 from app.services.policy_engine import policy_engine, PolicyConfig, PolicyEvaluationResult

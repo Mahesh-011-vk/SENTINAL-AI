@@ -6,7 +6,6 @@ from sqlalchemy import pool
 from alembic import context
 
 import sys
-import os
 from pathlib import Path
 
 # Add backend directory to sys.path
@@ -14,9 +13,8 @@ backend_dir = str(Path(__file__).resolve().parents[1])
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.config import settings
-from app.database import Base
-import app.models  # Load all models
+from app.config import settings  # noqa: E402
+from app.database import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

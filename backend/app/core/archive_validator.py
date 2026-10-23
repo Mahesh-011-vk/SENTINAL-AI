@@ -1,6 +1,5 @@
 import os
 import zipfile
-import tarfile
 from pathlib import Path
 from typing import List
 from app.config import settings

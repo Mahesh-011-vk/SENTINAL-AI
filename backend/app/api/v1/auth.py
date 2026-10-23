@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_client_ip, get_user_agent
 from app.models.tenant import Tenant
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.auth import UserRegister, UserLogin, TokenResponse, UserResponse
 from app.core.security import hash_password, verify_password, create_access_token
 from app.services.audit_service import AuditService
