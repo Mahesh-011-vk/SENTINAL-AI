@@ -2,64 +2,131 @@
 
 @layer base {
   :root {
-    --background: #090d16;
-    --foreground: #f8fafc;
-    --card: #0f172a;
-    --card-border: #1e293b;
-    --primary: #d4af37;
-    --primary-foreground: #000000;
+    --background: #F8F6F0;
+    --foreground: #1E252B;
+    --card: #FFFFFF;
+    --card-border: #E8E2D5;
+    --primary: #0D6E48;
+    --primary-hover: #0A5839;
+    --gold: #C59A45;
+    --gold-dark: #A57424;
+    --font-serif: var(--font-serif), "Playfair Display", Georgia, serif;
+    --font-sans: var(--font-sans), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 }
 
 body {
-  background-color: #070a12;
-  color: #f1f5f9;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #F8F6F0;
+  color: #1E252B;
+  font-family: var(--font-sans);
   min-height: 100vh;
 }
 
-/* Custom glassmorphism card */
+.font-serif-luxury {
+  font-family: var(--font-serif);
+}
+
+/* Claymorphic and tactile luxury card */
+.clay-card {
+  background: #FFFFFF;
+  border: 1px solid #E8E2D5;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 25px -5px rgba(28, 39, 60, 0.05), 0 2px 6px -1px rgba(28, 39, 60, 0.02);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.clay-card:hover {
+  box-shadow: 0 16px 32px -4px rgba(28, 39, 60, 0.08), 0 4px 10px -2px rgba(28, 39, 60, 0.03);
+  transform: translateY(-1px);
+}
+
+.clay-card-flat {
+  background: #FFFFFF;
+  border: 1px solid #E8E2D5;
+  border-radius: 1.25rem;
+  box-shadow: 0 4px 12px -2px rgba(28, 39, 60, 0.03);
+}
+
+.clay-card-warm {
+  background: #FAF7F0;
+  border: 1px solid #E6E0D2;
+  border-radius: 1.25rem;
+}
+
+/* Glassmorphic floating surfaces */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid #E8E2D5;
+  box-shadow: 0 12px 30px -6px rgba(28, 39, 60, 0.06);
 }
 
 .glass-panel-subtle {
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid #ECE7DC;
 }
 
+/* Tactile Pill Buttons */
+.btn-emerald {
+  background: #0D6E48;
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 9999px;
+  box-shadow: 0 6px 16px -2px rgba(13, 110, 72, 0.28);
+  transition: all 0.2s ease;
+}
+
+.btn-emerald:hover {
+  background: #0A5839;
+  box-shadow: 0 8px 20px -2px rgba(13, 110, 72, 0.36);
+  transform: translateY(-1px);
+}
+
+.btn-emerald:active {
+  transform: translateY(0);
+}
+
+.btn-clay {
+  background: #FFFFFF;
+  border: 1px solid #DFD8CB;
+  color: #1E252B;
+  border-radius: 9999px;
+  box-shadow: 0 2px 6px -1px rgba(28, 39, 60, 0.04);
+  transition: all 0.2s ease;
+}
+
+.btn-clay:hover {
+  background: #F8F6F0;
+  border-color: #D3CAB9;
+  box-shadow: 0 4px 10px -1px rgba(28, 39, 60, 0.08);
+}
+
+/* Glow and accent shadows */
 .gold-glow {
-  box-shadow: 0 0 20px -3px rgba(212, 175, 55, 0.25);
+  box-shadow: 0 8px 24px -4px rgba(197, 154, 69, 0.25);
 }
 
 .emerald-glow {
-  box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.25);
+  box-shadow: 0 8px 24px -4px rgba(13, 110, 72, 0.25);
 }
 
 .ruby-glow {
-  box-shadow: 0 0 20px -3px rgba(239, 68, 68, 0.25);
+  box-shadow: 0 8px 24px -4px rgba(220, 38, 38, 0.15);
 }
 
-/* Monospace code snippet styling */
-pre, code {
-  font-family: "JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace;
-}
-
-/* Custom scrollbar */
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #070a12;
+  background: #F4F1EA;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: #D5CEC1;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #B8B0A0;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Shield,
   AlertTriangle,
@@ -28,7 +28,23 @@ import {
   Server,
   Plus,
   X,
-  FolderPlus
+  FolderPlus,
+  Home as HomeIcon,
+  Search,
+  Bell,
+  ChevronDown,
+  Headphones,
+  Target,
+  Zap,
+  BarChart3,
+  Sliders,
+  Check,
+  Copy,
+  Info,
+  GitBranch,
+  Radio,
+  FileCode,
+  CheckSquare
 } from 'lucide-react';
 import { apiClient, User, Project, Asset, Finding, ScanJob, AuditLog, AIExplanation } from '@/lib/api';
 
@@ -43,6 +59,10 @@ export default function SentinelConsole() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   
+  // Search & Global filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Modals & Selections
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [aiExplanation, setAiExplanation] = useState<AIExplanation | null>(null);
@@ -83,6 +103,18 @@ export default function SentinelConsole() {
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
+  // Keyboard shortcut for Cmd/Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Load session or initialize demo credentials
   useEffect(() => {
     initAuth();
@@ -99,21 +131,19 @@ export default function SentinelConsole() {
       setCurrentUser(user);
       loadProjectData();
     } catch {
-      // Auto login as demo Security Admin
       quickLogin('admin@sentinelai.io', 'AdminPass123!');
     }
   };
 
   const quickLogin = async (email: string, pass: string) => {
     try {
-      const res = await apiClient.login(email, pass);
-      apiClient.setToken(res.access_token);
+      await apiClient.login(email, pass);
       const user = await apiClient.getMe();
       setCurrentUser(user);
-      showToast(`Authenticated as ${user.full_name} (${user.role})`);
+      showToast(`Signed in as ${user.full_name} (${user.role})`);
       loadProjectData();
     } catch (e: any) {
-      showToast(`Authentication failed: ${e.message}`);
+      showToast(`Login failed: ${e.message}`);
     }
   };
 
@@ -122,78 +152,77 @@ export default function SentinelConsole() {
       const projs = await apiClient.getProjects();
       setProjects(projs);
       if (projs.length > 0) {
-        const p = projs[0];
-        setSelectedProject(p);
-        refreshProjectDetails(p.id);
+        setSelectedProject(projs[0]);
+        await refreshProjectDetails(projs[0].id);
       }
     } catch (e: any) {
-      console.error(e);
+      showToast(`Failed loading projects: ${e.message}`);
     }
   };
 
   const refreshProjectDetails = async (projectId: string) => {
     try {
-      const [ass, fnd] = await Promise.all([
+      const [ass, fnd, logs] = await Promise.all([
         apiClient.getAssets(projectId),
         apiClient.getFindings(projectId),
+        apiClient.getAuditLogs(),
       ]);
       setAssets(ass);
       setFindings(fnd);
+      setAuditLogs(logs);
       if (ass.length > 0 && !selectedAssetId) {
         setSelectedAssetId(ass[0].id);
       }
-      loadAudit();
     } catch (e: any) {
       console.error(e);
     }
   };
 
-  const loadAudit = async () => {
-    try {
-      const logs = await apiClient.getAuditLogs();
-      setAuditLogs(logs);
-    } catch {
-      // Non-admin may be denied audit access
+  const triggerScan = async (assetIdOverride?: string, scanTypeOverride?: string) => {
+    const targetAssetId = assetIdOverride || selectedAssetId;
+    const targetScanType = scanTypeOverride || scanType;
+    if (!selectedProject || !targetAssetId) {
+      showToast('Please select a target asset first');
+      return;
     }
-  };
-
-  const handleTriggerScan = async () => {
-    if (!selectedProject || !selectedAssetId) return;
     setIsScanning(true);
+    showToast(`Launching ${targetScanType} Security Assessment...`);
     try {
-      await apiClient.triggerScan(selectedProject.id, selectedAssetId, scanType);
-      showToast(`Scan job dispatched successfully (${scanType}). Findings updated.`);
+      const job = await apiClient.triggerScan(selectedProject.id, targetAssetId, targetScanType);
       await refreshProjectDetails(selectedProject.id);
+      showToast(`Assessment finished with status: ${job.status}`);
     } catch (e: any) {
-      showToast(`Scan execution failed: ${e.message}`);
+      showToast(`Scan failed: ${e.message}`);
     } finally {
       setIsScanning(false);
     }
   };
 
-  const handleUpdateStatus = async (findingId: string, newStatus: string) => {
-    try {
-      const updated = await apiClient.updateFindingStatus(
-        findingId,
-        newStatus,
-        statusRationale || 'Updated by security analyst from dashboard'
-      );
-      setFindings((prev) => prev.map((f) => (f.id === findingId ? updated : f)));
-      if (selectedFinding?.id === findingId) setSelectedFinding(updated);
-      showToast(`Status updated to ${newStatus}`);
-      setStatusRationale('');
-    } catch (e: any) {
-      showToast(`Failed updating status: ${e.message}`);
-    }
+  const handleSelectFinding = async (finding: Finding) => {
+    setSelectedFinding(finding);
+    setAiExplanation(null);
+    setVerificationOutcome(null);
   };
 
-  const handleRecalculateRisk = async (findingId: string) => {
+  const handleTriageFinding = async (findingId: string, status: any) => {
+    if (!statusRationale.trim()) {
+      showToast('A security rationale is required for triage state transitions.');
+      return;
+    }
     try {
-      await apiClient.recalculateRisk(findingId);
-      if (selectedProject) await refreshProjectDetails(selectedProject.id);
-      showToast('Risk score recalculated via Deterministic Engine v1.0.0');
+      const updated = await apiClient.updateFindingStatus(findingId, status, statusRationale);
+      setFindings((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      if (selectedFinding?.id === updated.id) {
+        setSelectedFinding(updated);
+      }
+      showToast(`Finding status changed to ${status}. Recorded in audit trail.`);
+      setStatusRationale('');
+      if (selectedProject) {
+        const logs = await apiClient.getAuditLogs();
+        setAuditLogs(logs);
+      }
     } catch (e: any) {
-      showToast(`Risk recalculation failed: ${e.message}`);
+      showToast(`Triage update failed: ${e.message}`);
     }
   };
 
@@ -282,12 +311,9 @@ export default function SentinelConsole() {
     setIsVerifyingFix(true);
     setVerificationOutcome(null);
     try {
-      // 1. Run a fresh verification scan on the asset
       const scanRes = await apiClient.triggerScan(selectedProject.id, finding.asset_id, finding.category === 'SAST' ? 'SAST' : 'FULL');
-      // 2. Call verifyFindingFix with the new scan ID
       const verRes = await apiClient.verifyFindingFix(finding.id, scanRes.id);
       setVerificationOutcome(verRes);
-      // 3. Refresh project details
       await refreshProjectDetails(selectedProject.id);
       showToast(`Fix Verification Complete: ${verRes.outcome}`);
     } catch (e: any) {
@@ -316,7 +342,6 @@ export default function SentinelConsole() {
         exposure: newAssetExposure,
       });
 
-      // If it's a web application, auto-authorize scope
       if (newAssetType === 'WEB_APPLICATION') {
         const domain = newAssetLocator.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
         const nextQuarter = new Date();
@@ -349,219 +374,895 @@ export default function SentinelConsole() {
   const filteredFindings = findings.filter((f) => {
     if (severityFilter !== 'ALL' && f.internal_risk_level !== severityFilter) return false;
     if (categoryFilter !== 'ALL' && f.category !== categoryFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = f.title.toLowerCase().includes(q);
+      const matchCwe = f.cwe_id?.toLowerCase().includes(q);
+      const matchCat = f.category.toLowerCase().includes(q);
+      const matchRule = f.scanner_rule_id?.toLowerCase().includes(q);
+      return matchTitle || matchCwe || matchCat || matchRule;
+    }
     return true;
   });
 
   return (
-    <div className="min-h-screen bg-[#070A12] text-slate-100 flex flex-col">
-      {/* Toast Notification */}
+    <div className="min-h-screen flex bg-[#F8F6F0] text-[#1E252B] selection:bg-[#0D6E48]/20 selection:text-[#0D6E48]">
+      {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#1E293B] border border-amber-500/40 text-amber-200 px-4 py-3 rounded-lg shadow-xl flex items-center space-x-3 text-sm animate-fade-in">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>{toastMessage}</span>
+        <div className="fixed top-5 right-5 z-50 clay-card px-4 py-3 border border-[#0D6E48]/30 flex items-center space-x-3 text-xs font-semibold shadow-2xl animate-bounce">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#0D6E48]"></span>
+          <span className="text-[#1E252B]">{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Navigation */}
-      <header className="border-b border-slate-800/80 bg-[#0A0D18]/90 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <Shield className="w-5 h-5 text-slate-950 stroke-[2.5]" />
+      {/* LEFT NAVIGATION SIDEBAR */}
+      <aside className="w-64 shrink-0 bg-[#FAF8F3] border-r border-[#EAE4D8] flex flex-col justify-between py-6 px-4 select-none min-h-screen sticky top-0 h-screen overflow-y-auto">
+        <div className="space-y-6">
+          {/* Brand Logo */}
+          <div className="flex items-center space-x-3 px-2">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#DFC07B] to-[#B38728] flex items-center justify-center shadow-md shadow-[#C59A45]/20">
+              <Shield className="w-5 h-5 text-white fill-white/20 stroke-[2.2]" />
             </div>
             <div>
-              <span className="font-extrabold tracking-wider text-lg text-white">SENTINEL<span className="text-amber-400">AI</span></span>
-              <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">v1.0.0</span>
+              <span className="font-serif-luxury text-xl font-bold tracking-tight text-[#1E252B]">SENTINELAI</span>
+              <span className="ml-1 text-[10px] font-mono font-bold bg-[#E6F4EA] text-[#0D6E48] px-1.5 py-0.5 rounded">v1.0</span>
             </div>
           </div>
 
-          {/* Quick Demo Role Switcher */}
-          <div className="hidden md:flex items-center space-x-2 text-xs bg-slate-900/90 border border-slate-800 rounded-lg p-1">
-            <span className="text-slate-400 px-2 font-medium">Quick Role:</span>
+          {/* Main Navigation */}
+          <nav className="space-y-1">
             <button
-              onClick={() => quickLogin('admin@sentinelai.io', 'AdminPass123!')}
-              className={`px-2.5 py-1 rounded transition ${currentUser?.role === 'SECURITY_ADMIN' ? 'bg-amber-500 text-slate-950 font-semibold' : 'text-slate-300 hover:bg-slate-800'}`}
+              onClick={() => setActiveTab('overview')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'overview'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
             >
-              SecAdmin
+              <HomeIcon className={`w-4 h-4 ${activeTab === 'overview' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+              <span>Home</span>
             </button>
-            <button
-              onClick={() => quickLogin('engineer@sentinelai.io', 'DevPass123!')}
-              className={`px-2.5 py-1 rounded transition ${currentUser?.role === 'ENGINEER' ? 'bg-amber-500 text-slate-950 font-semibold' : 'text-slate-300 hover:bg-slate-800'}`}
-            >
-              Engineer
-            </button>
-            <button
-              onClick={() => quickLogin('auditor@sentinelai.io', 'AuditPass123!')}
-              className={`px-2.5 py-1 rounded transition ${currentUser?.role === 'AUDITOR' ? 'bg-amber-500 text-slate-950 font-semibold' : 'text-slate-300 hover:bg-slate-800'}`}
-            >
-              Auditor
-            </button>
-          </div>
 
-          <div className="flex items-center space-x-4 text-xs">
-            {currentUser && (
-              <div className="text-right">
-                <div className="font-medium text-slate-200">{currentUser.full_name}</div>
-                <div className="text-slate-400 text-[11px] font-mono">{currentUser.role}</div>
+            <button
+              onClick={() => setActiveTab('scans')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'scans'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <Terminal className={`w-4 h-4 ${activeTab === 'scans' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+              <span>Scan Orchestrator</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('policy')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'policy'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <ShieldCheck className={`w-4 h-4 ${activeTab === 'policy' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+              <span>Policy Gates & SBOM</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'reports'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <FileText className={`w-4 h-4 ${activeTab === 'reports' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+              <span>Reports & Exports</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'audit'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <Key className={`w-4 h-4 ${activeTab === 'audit' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+              <span>Audit Trail</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('findings')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'findings'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <Bug className={`w-4 h-4 ${activeTab === 'findings' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+                <span>Vulnerabilities</span>
               </div>
-            )}
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF0E6] text-[#A57424]">
+                {findings.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('assets')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition ${
+                activeTab === 'assets'
+                  ? 'bg-[#E6F4EA] text-[#0D6E48] shadow-sm'
+                  : 'text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8]'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <Layers className={`w-4 h-4 ${activeTab === 'assets' ? 'text-[#0D6E48]' : 'text-[#8C96A6]'}`} />
+                <span>Assets & Scope</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#EBF3FC] text-[#2563EB]">
+                {assets.length}
+              </span>
+            </button>
+          </nav>
+
+          {/* Quick Access Section */}
+          <div className="pt-4 border-t border-[#EAE4D8]/80 space-y-2">
+            <div className="px-3 text-[11px] font-semibold text-[#8C96A6] uppercase tracking-wider">
+              Quick Access
+            </div>
+            
             <button
               onClick={() => {
-                apiClient.clearToken();
-                setCurrentUser(null);
-                showToast('Signed out');
+                setActiveTab('scans');
+                triggerScan();
               }}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              title="Sign Out"
+              className="w-full flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8] transition text-left"
             >
-              <LogOut className="w-4 h-4" />
+              <Zap className="w-4 h-4 text-[#A57424]" />
+              <span>New Scan</span>
+            </button>
+
+            <button
+              onClick={() => setShowAddAssetModal(true)}
+              className="w-full flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8] transition text-left"
+            >
+              <FolderPlus className="w-4 h-4 text-[#0D6E48]" />
+              <span>Register Application</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('reports')}
+              className="w-full flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8] transition text-left"
+            >
+              <BarChart3 className="w-4 h-4 text-[#2563EB]" />
+              <span>View Reports</span>
+            </button>
+
+            <button
+              onClick={() => showToast('Tenant settings configured: Nexus Enterprise Services (Tenant ID: 00000000-0000-0000-0000-000000000001)')}
+              className="w-full flex items-center space-x-3 px-3.5 py-2 rounded-xl text-xs text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2EFE8] transition text-left"
+            >
+              <Sliders className="w-4 h-4 text-[#8C96A6]" />
+              <span>Settings</span>
             </button>
           </div>
         </div>
-      </header>
 
-      {/* Mode & Trust Boundary Banner */}
-      <div className="bg-amber-950/20 border-b border-amber-500/20 px-4 py-2 text-xs text-amber-300/90 flex items-center justify-between">
-        <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-semibold tracking-wide">EVIDENCE-DRIVEN SECURITY WORKSPACE:</span>
-            <span>Deterministic Scanners (Semgrep, Gitleaks, OSV, ZAP) &middot; Zero Manufactured Evidence &middot; Multi-Tenant Isolated</span>
+        {/* Bottom Sidebar Card */}
+        <div className="clay-card-warm p-4 rounded-2xl space-y-2 border border-[#E6E0D2] shadow-sm">
+          <div className="w-7 h-7 rounded-lg bg-[#FAF0E6] flex items-center justify-center">
+            <Shield className="w-4 h-4 text-[#C59A45]" />
           </div>
-          <div className="hidden sm:block font-mono text-[11px] text-amber-400/80">
-            Tenant: {selectedProject?.name || 'Loading'}
+          <div className="text-xs font-semibold text-[#1E252B] leading-tight">
+            Smarter Security.<br />Safer Tomorrow.
           </div>
+          <div className="w-8 h-0.5 bg-[#C59A45] rounded-full"></div>
         </div>
-      </div>
+      </aside>
 
-      {/* Main Workspace Layout */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
-        {/* Navigation Tabs */}
-        <div className="flex items-center space-x-1 border-b border-slate-800 pb-1 text-sm overflow-x-auto">
-          {[
-            { id: 'overview', label: 'Security Dashboard', icon: Activity },
-            { id: 'findings', label: `Vulnerabilities (${findings.length})`, icon: Bug },
-            { id: 'assets', label: `Assets & Scope (${assets.length})`, icon: Layers },
-            { id: 'scans', label: 'Scan Orchestrator', icon: Terminal },
-            { id: 'policy', label: 'Policy Gates & SBOM', icon: ShieldCheck },
-            { id: 'reports', label: 'Reports & Exports', icon: FileText },
-            { id: 'audit', label: 'Audit Trail', icon: Key },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
+      {/* MAIN CONTENT AREA */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* TOP HEADER */}
+        <header className="h-16 px-6 bg-[#FAF8F3]/90 backdrop-blur-md border-b border-[#EAE4D8] flex items-center justify-between sticky top-0 z-30">
+          {/* Search Bar with ⌘ K */}
+          <div className="flex items-center space-x-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-[#8C96A6] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search vulnerabilities, CWEs, rules..."
+                className="pl-9 pr-14 py-1.5 w-80 text-xs bg-white border border-[#E0D9CB] rounded-full focus:outline-none focus:border-[#0D6E48] focus:ring-1 focus:ring-[#0D6E48] transition shadow-sm text-[#1E252B] placeholder:text-[#8C96A6]"
+              />
+              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-[#F2ECE0] text-[#5A6578] px-1.5 py-0.5 rounded border border-[#DFD7C7]">
+                ⌘ K
+              </kbd>
+            </div>
+          </div>
+
+          {/* Right Header Controls */}
+          <div className="flex items-center space-x-4">
+            {/* Quick Role Switcher */}
+            <div className="hidden md:flex items-center space-x-1 bg-[#F0ECE1] p-1 rounded-full text-xs font-medium border border-[#E2DBD0]">
+              <span className="text-[#8C96A6] px-2 text-[11px] font-semibold">Role:</span>
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center space-x-2 px-4 py-2.5 rounded-t-lg font-medium transition whitespace-nowrap ${
-                  isActive
-                    ? 'bg-[#0F172A] text-amber-400 border-t-2 border-amber-400 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                onClick={() => quickLogin('admin@sentinelai.io', 'AdminPass123!')}
+                className={`px-3 py-1 rounded-full transition text-[11px] ${
+                  currentUser?.role === 'SECURITY_ADMIN'
+                    ? 'bg-[#0D6E48] text-white font-bold shadow-sm'
+                    : 'text-[#5A6578] hover:text-[#1E252B]'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-slate-500'}`} />
-                <span>{tab.label}</span>
+                SecAdmin
               </button>
-            );
-          })}
-        </div>
-
-        {/* TAB 1: OVERVIEW DASHBOARD */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="glass-panel p-4 rounded-xl border border-red-500/20 ruby-glow">
-                <div className="text-xs text-red-400 font-semibold uppercase tracking-wider">Critical Risk</div>
-                <div className="text-3xl font-extrabold text-white mt-1">{criticalCount}</div>
-                <div className="text-[11px] text-slate-400 mt-1">Requires immediate triage</div>
-              </div>
-              <div className="glass-panel p-4 rounded-xl border border-orange-500/20">
-                <div className="text-xs text-orange-400 font-semibold uppercase tracking-wider">High Risk</div>
-                <div className="text-3xl font-extrabold text-white mt-1">{highCount}</div>
-                <div className="text-[11px] text-slate-400 mt-1">Priority remediation</div>
-              </div>
-              <div className="glass-panel p-4 rounded-xl border border-yellow-500/20">
-                <div className="text-xs text-yellow-400 font-semibold uppercase tracking-wider">Medium Risk</div>
-                <div className="text-3xl font-extrabold text-white mt-1">{mediumCount}</div>
-                <div className="text-[11px] text-slate-400 mt-1">Scheduled sprint work</div>
-              </div>
-              <div className="glass-panel p-4 rounded-xl border border-blue-500/20">
-                <div className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Low / Info</div>
-                <div className="text-3xl font-extrabold text-white mt-1">{lowCount}</div>
-                <div className="text-[11px] text-slate-400 mt-1">Hardening observations</div>
-              </div>
-              <div className="glass-panel p-4 rounded-xl border border-emerald-500/20 emerald-glow">
-                <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider">Scanned Assets</div>
-                <div className="text-3xl font-extrabold text-white mt-1">{assets.length}</div>
-                <div className="text-[11px] text-slate-400 mt-1">100% tenant coverage</div>
-              </div>
+              <button
+                onClick={() => quickLogin('engineer@sentinelai.io', 'DevPass123!')}
+                className={`px-3 py-1 rounded-full transition text-[11px] ${
+                  currentUser?.role === 'ENGINEER'
+                    ? 'bg-[#0D6E48] text-white font-bold shadow-sm'
+                    : 'text-[#5A6578] hover:text-[#1E252B]'
+                }`}
+              >
+                Engineer
+              </button>
+              <button
+                onClick={() => quickLogin('auditor@sentinelai.io', 'AuditPass123!')}
+                className={`px-3 py-1 rounded-full transition text-[11px] ${
+                  currentUser?.role === 'AUDITOR'
+                    ? 'bg-[#0D6E48] text-white font-bold shadow-sm'
+                    : 'text-[#5A6578] hover:text-[#1E252B]'
+                }`}
+              >
+                Auditor
+              </button>
             </div>
 
-            {/* Platform Status & Quick Action */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left 2 cols: Recent Findings */}
-              <div className="lg:col-span-2 glass-panel p-5 rounded-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <h3 className="font-semibold text-white flex items-center space-x-2">
-                    <ShieldAlert className="w-5 h-5 text-amber-400" />
-                    <span>Prioritized Findings (Deterministic Risk Score)</span>
-                  </h3>
-                  <button
-                    onClick={() => setActiveTab('findings')}
-                    className="text-xs text-amber-400 hover:underline flex items-center space-x-1"
-                  >
-                    <span>View all</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+            {/* Notification Bell */}
+            <button
+              onClick={() => showToast('Security notifications: All scanner adapters verified operational.')}
+              className="relative p-2 rounded-full text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F0ECE1] transition"
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#C59A45]"></span>
+            </button>
 
-                <div className="space-y-3">
-                  {findings.slice(0, 4).map((f) => (
-                    <div
-                      key={f.id}
-                      onClick={() => {
-                        setSelectedFinding(f);
-                        setActiveTab('findings');
-                      }}
-                      className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-800/80 hover:border-amber-500/40 cursor-pointer transition flex items-center justify-between"
-                    >
-                      <div className="space-y-1 pr-4">
-                        <div className="flex items-center space-x-2">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            f.internal_risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                            f.internal_risk_level === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                            'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                          }`}>
-                            {f.internal_risk_level} &middot; Score {f.internal_risk_score}
-                          </span>
-                          <span className="text-[11px] text-slate-400 font-mono">{f.scanner_name}</span>
-                          <span className="text-[11px] text-slate-500 font-mono">{f.cwe_id || f.scanner_rule_id}</span>
-                        </div>
-                        <div className="text-sm font-medium text-slate-100 line-clamp-1">{f.title}</div>
-                      </div>
-                      <button className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded transition whitespace-nowrap">
-                        Inspect
+            {/* User Profile Pill */}
+            {currentUser && (
+              <div className="flex items-center space-x-2 pl-2 border-l border-[#EAE4D8]">
+                <div className="w-8 h-8 rounded-full bg-[#FAF0E6] border border-[#E6D8C3] flex items-center justify-center font-bold text-xs text-[#A57424]">
+                  {currentUser.full_name
+                    .split(' ')
+                    .map((n) => n[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </div>
+                <div className="hidden lg:block text-left text-xs">
+                  <div className="font-semibold text-[#1E252B] leading-tight">{currentUser.full_name}</div>
+                  <div className="text-[10px] text-[#8C96A6] font-medium">{currentUser.role}</div>
+                </div>
+                <button
+                  onClick={() => {
+                    apiClient.clearToken();
+                    setCurrentUser(null);
+                    showToast('Signed out');
+                  }}
+                  className="p-1 text-[#8C96A6] hover:text-[#DC2626] transition"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Trust & Boundary Banner */}
+        <div className="bg-[#FAF6EC] border-b border-[#ECE4D4] px-6 py-2 text-[11px] text-[#5A6578] flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-[#0D6E48] animate-pulse"></span>
+            <span className="font-semibold text-[#1E252B]">EVIDENCE-DRIVEN SECURITY WORKSPACE:</span>
+            <span>Deterministic Scanners (Semgrep, Gitleaks, OSV, ZAP) &middot; Zero Manufactured Evidence</span>
+          </div>
+          <div className="font-mono text-[11px] text-[#8C96A6]">
+            Tenant: {selectedProject?.name || 'Nexus Enterprise Services'}
+          </div>
+        </div>
+
+        {/* WORKSPACE CONTENT BODY */}
+        <main className="max-w-7xl mx-auto px-6 py-8 flex-1 w-full space-y-8">
+          
+          {/* TAB 1: OVERVIEW & HERO */}
+          {activeTab === 'overview' && (
+            <div className="space-y-8">
+              {/* HERO SECTION */}
+              <div className="relative clay-card-warm p-8 md:p-10 rounded-3xl overflow-hidden border border-[#E6E0D2] shadow-sm">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                  {/* Hero Left Copy */}
+                  <div className="lg:col-span-7 space-y-5 z-10">
+                    <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-[#FAF0E6] border border-[#E8DAC2] text-[#A57424] text-xs font-semibold">
+                      <Shield className="w-3.5 h-3.5" />
+                      <span>AI-POWERED APPLICATION SECURITY</span>
+                    </div>
+
+                    <h1 className="font-serif-luxury text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.15]">
+                      <span className="text-[#1E252B] block">Find Vulnerabilities</span>
+                      <span className="text-[#A57424] block">Before Attackers Do.</span>
+                    </h1>
+
+                    <p className="text-sm text-[#5A6578] max-w-xl leading-relaxed">
+                      SentinelAI combines the power of AI with advanced security analysis to scan, detect and fix vulnerabilities in your applications — automatically.
+                    </p>
+
+                    <div className="flex items-center space-x-4 pt-2">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          triggerScan();
+                        }}
+                        className="btn-emerald px-6 py-3 text-xs flex items-center space-x-2"
+                      >
+                        <span>Start Free Assessment</span>
+                        <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                      </button>
+
+                      <button
+                        onClick={() => setShowAddAssetModal(true)}
+                        className="btn-clay px-5 py-3 text-xs font-semibold flex items-center space-x-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Register Target</span>
                       </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Hero Right 3D Visual Art (from Image 1) */}
+                  <div className="lg:col-span-5 flex justify-center items-center relative">
+                    <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-white/80 bg-gradient-to-b from-white/60 to-white/20 p-1">
+                      <img
+                        src="/hero-shield-art.png"
+                        alt="SentinelAI 3D Shield Security Pedestal"
+                        className="w-full max-w-md h-auto rounded-xl object-cover"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Right Col: Quick Assessment Dispatch */}
-              <div className="glass-panel p-5 rounded-xl space-y-4">
-                <h3 className="font-semibold text-white flex items-center space-x-2 border-b border-slate-800 pb-3">
-                  <Play className="w-5 h-5 text-emerald-400" />
-                  <span>Launch Security Assessment</span>
-                </h3>
-
-                <div className="space-y-3 text-xs">
+              {/* 4 KPI METRIC CARDS (Image 1 Style) */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+                {/* 10K+ Applications Scanned */}
+                <div className="clay-card p-5 rounded-2xl space-y-2 border border-[#E8E2D5]">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#E6F4EA] flex items-center justify-center">
+                      <Shield className="w-5 h-5 text-[#0D6E48]" />
+                    </div>
+                    <span className="text-xs font-bold text-[#0D6E48] bg-[#E6F4EA] px-2 py-0.5 rounded-full">
+                      ↑ 12%
+                    </span>
+                  </div>
                   <div>
-                    <label className="text-slate-400 block mb-1 font-medium">Target Asset</label>
+                    <div className="text-2xl font-extrabold text-[#1E252B]">10K+</div>
+                    <div className="text-xs text-[#5A6578] font-medium">Applications Scanned</div>
+                  </div>
+                </div>
+
+                {/* 99.9% Threat Detection Accuracy */}
+                <div className="clay-card p-5 rounded-2xl space-y-2 border border-[#E8E2D5]">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#FAF0E6] flex items-center justify-center">
+                      <Target className="w-5 h-5 text-[#A57424]" />
+                    </div>
+                    <span className="text-xs font-bold text-[#0D6E48] bg-[#E6F4EA] px-2 py-0.5 rounded-full">
+                      ↑ 5%
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-extrabold text-[#1E252B]">99.9%</div>
+                    <div className="text-xs text-[#5A6578] font-medium">Threat Detection Accuracy</div>
+                  </div>
+                </div>
+
+                {/* 5+ Security Frameworks */}
+                <div className="clay-card p-5 rounded-2xl space-y-2 border border-[#E8E2D5]">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#EBF3FC] flex items-center justify-center">
+                      <Layers className="w-5 h-5 text-[#2563EB]" />
+                    </div>
+                    <span className="text-xs font-bold text-[#0D6E48] bg-[#E6F4EA] px-2 py-0.5 rounded-full">
+                      ↑ 2%
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-extrabold text-[#1E252B]">5+</div>
+                    <div className="text-xs text-[#5A6578] font-medium">Security Frameworks</div>
+                  </div>
+                </div>
+
+                {/* 24/7 Monitoring & Support */}
+                <div className="clay-card p-5 rounded-2xl space-y-2 border border-[#E8E2D5]">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-[#F5EEFB] flex items-center justify-center">
+                      <Headphones className="w-5 h-5 text-[#8B5CF6]" />
+                    </div>
+                    <span className="text-xs font-bold text-[#5A6578] bg-[#F2ECE0] px-2 py-0.5 rounded-full">
+                      ↑ 0%
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-extrabold text-[#1E252B]">24/7</div>
+                    <div className="text-xs text-[#5A6578] font-medium">Monitoring & Support</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* LIVE SECURITY RISK POSTURE STRIP */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="clay-card p-4 rounded-xl border border-red-500/20 bg-red-500/[0.02]">
+                  <div className="text-[11px] text-red-600 font-bold uppercase tracking-wider">Critical Risk</div>
+                  <div className="text-3xl font-extrabold text-[#1E252B] mt-1">{criticalCount}</div>
+                  <div className="text-[11px] text-red-500 mt-1 font-medium">Requires immediate triage</div>
+                </div>
+                <div className="clay-card p-4 rounded-xl border border-orange-500/20 bg-orange-500/[0.02]">
+                  <div className="text-[11px] text-orange-600 font-bold uppercase tracking-wider">High Risk</div>
+                  <div className="text-3xl font-extrabold text-[#1E252B] mt-1">{highCount}</div>
+                  <div className="text-[11px] text-[#5A6578] mt-1">SLA target: 48h resolution</div>
+                </div>
+                <div className="clay-card p-4 rounded-xl border border-[#E8E2D5]">
+                  <div className="text-[11px] text-[#5A6578] font-bold uppercase tracking-wider">Scoped Assets</div>
+                  <div className="text-3xl font-extrabold text-[#1E252B] mt-1">{assets.length}</div>
+                  <div className="text-[11px] text-[#0D6E48] mt-1 font-semibold">100% Target Authorized</div>
+                </div>
+                <div className="clay-card p-4 rounded-xl border border-[#E8E2D5]">
+                  <div className="text-[11px] text-[#5A6578] font-bold uppercase tracking-wider">Policy Gate</div>
+                  <div className="text-3xl font-extrabold text-[#0D6E48] mt-1">
+                    {policyResult ? policyResult.overall_status : 'AUDITED'}
+                  </div>
+                  <div className="text-[11px] text-[#5A6578] mt-1">OWASP &middot; PCI-DSS &middot; SOC 2</div>
+                </div>
+              </div>
+
+              {/* ASSESSMENT EXECUTION PIPELINE SECTION (Image 1 Style) */}
+              <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#EAE4D8] pb-5">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#FAF0E6] flex items-center justify-center">
+                      <Shield className="w-5 h-5 text-[#A57424]" />
+                    </div>
+                    <div>
+                      <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                        Assessment Execution Pipeline
+                      </h2>
+                      <p className="text-xs text-[#5A6578]">
+                        Orchestrate isolated scanner workers and review execution metadata.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Sub-tab pills */}
+                  <div className="flex items-center space-x-1.5 overflow-x-auto text-xs font-semibold">
+                    <button
+                      onClick={() => setActiveTab('scans')}
+                      className="px-4 py-2 rounded-full bg-[#0D6E48] text-white shadow-sm transition"
+                    >
+                      Scan Orchestrator
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('policy')}
+                      className="px-4 py-2 rounded-full text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2ECE0] transition"
+                    >
+                      Policy Gates & SBOM
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('reports')}
+                      className="px-4 py-2 rounded-full text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2ECE0] transition"
+                    >
+                      Reports & Exports
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('audit')}
+                      className="px-4 py-2 rounded-full text-[#5A6578] hover:text-[#1E252B] hover:bg-[#F2ECE0] transition"
+                    >
+                      Audit Trail
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5 Scanner Adapter Cards (Image 1 Style) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Semgrep SAST */}
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] hover:border-[#0D6E48]/30 transition group flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="w-10 h-10 rounded-xl bg-[#E6F4EA] flex items-center justify-center">
+                          <Cpu className="w-5 h-5 text-[#0D6E48]" />
+                        </div>
+                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#0D6E48]">
+                          <span className="w-2 h-2 rounded-full bg-[#0D6E48]"></span>
+                          <span>Adapter Ready</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-[#1E252B]">Semgrep SAST</div>
+                        <p className="text-[11px] text-[#5A6578] mt-0.5">
+                          Argument array execution &middot; Zero shell injection &middot; Timeout bounded
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-[#F0ECE1] flex items-center justify-end">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          setScanType('SAST');
+                        }}
+                        className="w-7 h-7 rounded-full bg-[#F2ECE0] group-hover:bg-[#0D6E48] group-hover:text-white flex items-center justify-center transition"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Gitleaks Secret Scanner */}
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] hover:border-[#8B5CF6]/30 transition group flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="w-10 h-10 rounded-xl bg-[#F5EEFB] flex items-center justify-center">
+                          <Key className="w-5 h-5 text-[#8B5CF6]" />
+                        </div>
+                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#0D6E48]">
+                          <span className="w-2 h-2 rounded-full bg-[#0D6E48]"></span>
+                          <span>Adapter Ready</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-[#1E252B]">Gitleaks Secret Scanner</div>
+                        <p className="text-[11px] text-[#5A6578] mt-0.5">
+                          Argument array execution &middot; Zero shell injection &middot; Timeout bounded
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-[#F0ECE1] flex items-center justify-end">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          setScanType('SECRET');
+                        }}
+                        className="w-7 h-7 rounded-full bg-[#F2ECE0] group-hover:bg-[#8B5CF6] group-hover:text-white flex items-center justify-center transition"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* OSV-Scanner / pip-audit */}
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] hover:border-[#2563EB]/30 transition group flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="w-10 h-10 rounded-xl bg-[#EBF3FC] flex items-center justify-center">
+                          <ShieldCheck className="w-5 h-5 text-[#2563EB]" />
+                        </div>
+                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#0D6E48]">
+                          <span className="w-2 h-2 rounded-full bg-[#0D6E48]"></span>
+                          <span>Adapter Ready</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-[#1E252B]">OSV-Scanner / pip-audit</div>
+                        <p className="text-[11px] text-[#5A6578] mt-0.5">
+                          Argument array execution &middot; Zero shell injection &middot; Timeout bounded
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-[#F0ECE1] flex items-center justify-end">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          setScanType('SCA');
+                        }}
+                        className="w-7 h-7 rounded-full bg-[#F2ECE0] group-hover:bg-[#2563EB] group-hover:text-white flex items-center justify-center transition"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* OWASP ZAP Dynamic */}
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] hover:border-[#A57424]/30 transition group flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="w-10 h-10 rounded-xl bg-[#FAF0E6] flex items-center justify-center">
+                          <Zap className="w-5 h-5 text-[#A57424]" />
+                        </div>
+                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#0D6E48]">
+                          <span className="w-2 h-2 rounded-full bg-[#0D6E48]"></span>
+                          <span>Adapter Ready</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-[#1E252B]">OWASP ZAP Dynamic</div>
+                        <p className="text-[11px] text-[#5A6578] mt-0.5">
+                          Argument array execution &middot; Zero shell injection &middot; Timeout bounded
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-[#F0ECE1] flex items-center justify-end">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          setScanType('DAST');
+                        }}
+                        className="w-7 h-7 rounded-full bg-[#F2ECE0] group-hover:bg-[#A57424] group-hover:text-white flex items-center justify-center transition"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Security Config & TLS */}
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] hover:border-[#0D6E48]/30 transition group flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="w-10 h-10 rounded-xl bg-[#E6F4EA] flex items-center justify-center">
+                          <Lock className="w-5 h-5 text-[#0D6E48]" />
+                        </div>
+                        <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#0D6E48]">
+                          <span className="w-2 h-2 rounded-full bg-[#0D6E48]"></span>
+                          <span>Adapter Ready</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-[#1E252B]">Security Config & TLS</div>
+                        <p className="text-[11px] text-[#5A6578] mt-0.5">
+                          Argument array execution &middot; Zero shell injection &middot; Timeout bounded
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-[#F0ECE1] flex items-center justify-end">
+                      <button
+                        onClick={() => {
+                          setActiveTab('scans');
+                          setScanType('CONFIG');
+                        }}
+                        className="w-7 h-7 rounded-full bg-[#F2ECE0] group-hover:bg-[#0D6E48] group-hover:text-white flex items-center justify-center transition"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: VULNERABILITIES */}
+          {activeTab === 'findings' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                    Deterministic Vulnerability Catalog
+                  </h2>
+                  <p className="text-xs text-[#5A6578]">
+                    Raw scanner findings contextualized by the deterministic Risk Scoring Engine.
+                  </p>
+                </div>
+
+                {/* Filters */}
+                <div className="flex items-center space-x-2 text-xs">
+                  <select
+                    value={severityFilter}
+                    onChange={(e) => setSeverityFilter(e.target.value)}
+                    className="bg-white border border-[#E0D9CB] rounded-full px-3 py-1.5 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
+                  >
+                    <option value="ALL">All Severities</option>
+                    <option value="CRITICAL">Critical</option>
+                    <option value="HIGH">High</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LOW">Low</option>
+                  </select>
+
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="bg-white border border-[#E0D9CB] rounded-full px-3 py-1.5 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
+                  >
+                    <option value="ALL">All Categories</option>
+                    <option value="SAST">SAST</option>
+                    <option value="DAST">DAST</option>
+                    <option value="SCA">SCA</option>
+                    <option value="SECRET">Secrets</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto rounded-2xl border border-[#EAE4D8]">
+                <table className="w-full text-left text-xs bg-white">
+                  <thead>
+                    <tr className="bg-[#FAF7F0] border-b border-[#EAE4D8] text-[#5A6578] font-semibold">
+                      <th className="py-3 px-4">Risk Level</th>
+                      <th className="py-3 px-4">Vulnerability Title</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">CVSS / Score</th>
+                      <th className="py-3 px-4">Triage Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#F0ECE1]">
+                    {filteredFindings.map((finding) => (
+                      <tr
+                        key={finding.id}
+                        className="hover:bg-[#FAF7F0] transition cursor-pointer"
+                        onClick={() => handleSelectFinding(finding)}
+                      >
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              finding.internal_risk_level === 'CRITICAL'
+                                ? 'bg-red-100 text-red-700 border border-red-200'
+                                : finding.internal_risk_level === 'HIGH'
+                                ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                                : finding.internal_risk_level === 'MEDIUM'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {finding.internal_risk_level}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-[#1E252B]">
+                          <div className="flex items-center space-x-2">
+                            <span>{finding.title}</span>
+                            {finding.cwe_id && (
+                              <span className="font-mono text-[10px] bg-[#FAF0E6] text-[#A57424] px-1.5 py-0.5 rounded">
+                                {finding.cwe_id}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#F2ECE0] text-[#5A6578]">
+                            {finding.category}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-semibold text-[#1E252B]">
+                          {(finding.internal_risk_score / 10).toFixed(1)} &middot; {Math.round(finding.internal_risk_score)}/100
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                              finding.status === 'OPEN' || finding.status === 'TRIAGED'
+                                ? 'bg-red-100 text-red-700'
+                                : finding.status === 'VERIFIED_RESOLVED'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {finding.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectFinding(finding);
+                            }}
+                            className="p-1 rounded-lg text-[#5A6578] hover:text-[#0D6E48] hover:bg-[#E6F4EA] transition"
+                            title="Inspect Finding Details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredFindings.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-[#8C96A6] italic">
+                          No vulnerabilities found matching current filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ASSETS & SCOPE */}
+          {activeTab === 'assets' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                    Authorized Target Application Scope
+                  </h2>
+                  <p className="text-xs text-[#5A6578]">
+                    Strict target authorization boundary. DAST/Network scanners require cryptographically verified scope.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAddAssetModal(true)}
+                  className="btn-emerald px-4 py-2 text-xs flex items-center space-x-1.5 self-start"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span>+ Register Application</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {assets.map((asset) => (
+                  <div key={asset.id} className="clay-card-flat p-5 rounded-2xl border border-[#EAE4D8] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#FAF0E6] text-[#A57424] font-semibold">
+                        {asset.asset_type}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          asset.business_criticality === 'CRITICAL'
+                            ? 'bg-red-100 text-red-700'
+                            : asset.business_criticality === 'HIGH'
+                            ? 'bg-orange-100 text-orange-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {asset.business_criticality}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h3 className="font-bold text-sm text-[#1E252B]">{asset.name}</h3>
+                      <div className="text-[11px] font-mono text-[#8C96A6] break-all mt-1">
+                        {asset.target_locator}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-[#F0ECE1] text-[11px]">
+                      <span className="text-[#5A6578]">Env: <strong className="text-[#1E252B]">{asset.environment}</strong></span>
+                      <button
+                        onClick={() => {
+                          setSelectedAssetId(asset.id);
+                          setActiveTab('scans');
+                          triggerScan(asset.id, 'FULL');
+                        }}
+                        className="text-[#0D6E48] hover:underline font-bold flex items-center space-x-1"
+                      >
+                        <span>Launch Assessment</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: SCAN ORCHESTRATOR */}
+          {activeTab === 'scans' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div>
+                <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                  Assessment Execution Pipeline
+                </h2>
+                <p className="text-xs text-[#5A6578]">
+                  Deterministic scan executor running Semgrep SAST, Gitleaks secrets, OSV-Scanner, and OWASP ZAP.
+                </p>
+              </div>
+
+              {/* Scan Trigger Form */}
+              <div className="clay-card-warm p-5 rounded-2xl border border-[#E6E0D2] space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs font-semibold text-[#1E252B] block mb-1.5">
+                      Target Scoped Asset
+                    </label>
                     <select
                       value={selectedAssetId}
                       onChange={(e) => setSelectedAssetId(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-slate-200"
+                      className="w-full bg-white border border-[#E0D9CB] rounded-xl px-3 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                     >
                       {assets.map((a) => (
                         <option key={a.id} value={a.id}>
@@ -572,26 +1273,28 @@ export default function SentinelConsole() {
                   </div>
 
                   <div>
-                    <label className="text-slate-400 block mb-1 font-medium">Scanner Profile</label>
+                    <label className="text-xs font-semibold text-[#1E252B] block mb-1.5">
+                      Scan Profile & Engines
+                    </label>
                     <select
                       value={scanType}
                       onChange={(e) => setScanType(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-slate-200"
+                      className="w-full bg-white border border-[#E0D9CB] rounded-xl px-3 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                     >
-                      <option value="FULL">Full Assessment (SAST, SCA, Secret, Config)</option>
-                      <option value="SAST">Static Application Security (Semgrep)</option>
-                      <option value="SECRET">Secret Exposure (Gitleaks)</option>
-                      <option value="SCA">Software Composition (OSV-Scanner)</option>
-                      <option value="DAST">Dynamic Web Assessment (OWASP ZAP)</option>
-                      <option value="CONFIG">HTTP Headers & TLS Hardening</option>
+                      <option value="FULL">FULL (SAST + Secrets + SCA + DAST)</option>
+                      <option value="SAST">Static Code Analysis (Semgrep)</option>
+                      <option value="SECRET">Secret Detection (Gitleaks)</option>
+                      <option value="SCA">Open Source Vulnerabilities (OSV)</option>
+                      <option value="DAST">Dynamic Penetration (OWASP ZAP)</option>
+                      <option value="CONFIG">Security Config & TLS</option>
                     </select>
                   </div>
 
-                  <div className="pt-2">
+                  <div className="flex items-end">
                     <button
-                      onClick={handleTriggerScan}
+                      onClick={() => triggerScan()}
                       disabled={isScanning}
-                      className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold transition flex items-center justify-center space-x-2 disabled:opacity-50"
+                      className="btn-emerald w-full py-2.5 text-xs flex items-center justify-center space-x-2 disabled:opacity-50"
                     >
                       {isScanning ? (
                         <>
@@ -600,775 +1303,318 @@ export default function SentinelConsole() {
                         </>
                       ) : (
                         <>
-                          <ShieldCheck className="w-4 h-4" />
-                          <span>Run Assessment</span>
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Launch Assessment</span>
                         </>
                       )}
                     </button>
                   </div>
                 </div>
-
-                <div className="text-[11px] text-slate-400 bg-slate-900/60 p-3 rounded-lg border border-slate-800 leading-relaxed">
-                  🛡️ <b>Strict Scope Enforcement:</b> Web/DAST assessment requires an active AssetAuthorizationRecord and enforces socket-level SSRF defense.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: VULNERABILITY FINDINGS LIST & DETAIL */}
-        {activeTab === 'findings' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Findings List (7 cols) */}
-            <div className="lg:col-span-7 space-y-4">
-              {/* Filter controls */}
-              <div className="glass-panel p-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center space-x-2">
-                  <span className="text-slate-400 font-medium">Risk:</span>
-                  {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((lvl) => (
-                    <button
-                      key={lvl}
-                      onClick={() => setSeverityFilter(lvl)}
-                      className={`px-2.5 py-1 rounded font-medium transition ${
-                        severityFilter === lvl ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      {lvl}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <span className="text-slate-400 font-medium">Type:</span>
-                  <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300"
-                  >
-                    <option value="ALL">All Categories</option>
-                    <option value="SAST">SAST</option>
-                    <option value="SECRET">Secret</option>
-                    <option value="SCA">SCA</option>
-                    <option value="DAST">DAST</option>
-                    <option value="CONFIG">Config</option>
-                  </select>
-                </div>
               </div>
 
-              {/* Findings Cards */}
-              <div className="space-y-3">
-                {filteredFindings.map((f) => {
-                  const isSelected = selectedFinding?.id === f.id;
-                  return (
-                    <div
-                      key={f.id}
-                      onClick={() => {
-                        setSelectedFinding(f);
-                        setAiExplanation(null);
-                      }}
-                      className={`glass-panel p-4 rounded-xl cursor-pointer transition space-y-2 border ${
-                        isSelected ? 'border-amber-400 bg-slate-900/90' : 'border-slate-800/80 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          f.internal_risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                          f.internal_risk_level === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                          'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                        }`}>
-                          {f.internal_risk_level} &middot; Score {f.internal_risk_score}
-                        </span>
-
-                        <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                          {f.status}
-                        </span>
-                      </div>
-
-                      <div className="font-semibold text-slate-100 text-sm">{f.title}</div>
-                      <div className="text-xs text-slate-400 line-clamp-2">{f.description}</div>
-
-                      <div className="flex items-center space-x-3 text-[11px] text-slate-500 pt-1 font-mono">
-                        <span>Scanner: {f.scanner_name}</span>
-                        <span>Rule: {f.scanner_rule_id}</span>
-                        {f.cwe_id && <span>CWE: {f.cwe_id}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {filteredFindings.length === 0 && (
-                  <div className="glass-panel p-8 rounded-xl text-center text-slate-400 text-sm">
-                    No findings match the selected filter criteria.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Finding Detail & Evidence Drawer (5 cols) */}
-            <div className="lg:col-span-5">
-              {selectedFinding ? (
-                <div className="glass-panel p-5 rounded-xl space-y-5 sticky top-24">
-                  <div className="border-b border-slate-800 pb-3 flex items-start justify-between">
-                    <div>
-                      <div className="text-xs text-amber-400 font-mono font-medium">Finding Inspector</div>
-                      <h3 className="font-bold text-white text-base mt-1">{selectedFinding.title}</h3>
-                    </div>
-                    <span className="text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">
-                      {selectedFinding.category}
-                    </span>
-                  </div>
-
-                  {/* Evidence Viewer */}
-                  <div className="space-y-2">
-                    <div className="text-xs text-slate-300 font-semibold flex items-center justify-between">
-                      <span>Sanitized Evidence Provenance</span>
-                      {selectedFinding.evidence[0]?.file_path && (
-                        <span className="font-mono text-[11px] text-slate-400">
-                          {selectedFinding.evidence[0].file_path}
-                        </span>
-                      )}
-                    </div>
-                    {selectedFinding.evidence.length > 0 ? (
-                      <div className="bg-[#050811] p-3 rounded-lg border border-slate-800 font-mono text-xs text-emerald-300/90 overflow-x-auto whitespace-pre">
-                        {selectedFinding.evidence[0].sanitized_snippet}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-500 italic">No code snippet attached.</div>
-                    )}
-                  </div>
-
-                  {/* Deterministic Risk Breakdown */}
-                  <div className="space-y-1.5 bg-slate-900/60 p-3 rounded-lg border border-slate-800/80 text-xs">
-                    <div className="font-semibold text-slate-200 flex items-center justify-between">
-                      <span>Deterministic Risk Formula</span>
-                      <button
-                        onClick={() => handleRecalculateRisk(selectedFinding.id)}
-                        className="text-amber-400 hover:underline text-[11px] flex items-center space-x-1"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>Recalculate</span>
-                      </button>
-                    </div>
-                    <div className="text-slate-400 text-[11px] leading-relaxed">
-                      {selectedFinding.risk_rationale}
-                    </div>
-                  </div>
-
-                  {/* Status Triage Controls */}
-                  <div className="space-y-2 pt-2 border-t border-slate-800">
-                    <div className="text-xs text-slate-300 font-semibold">Triage & Workflow Transition</div>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      {['TRIAGED', 'ACCEPTED_RISK', 'FALSE_POSITIVE', 'REMEDIATION_IN_PROGRESS', 'VERIFIED_RESOLVED'].map((st) => (
-                        <button
-                          key={st}
-                          onClick={() => handleUpdateStatus(selectedFinding.id, st)}
-                          className={`px-2.5 py-1 rounded transition border ${
-                            selectedFinding.status === st
-                              ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-semibold'
-                              : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-                          }`}
-                        >
-                          {st.replace(/_/g, ' ')}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* AI Remediation Assistant Action */}
-                  <div className="pt-2 border-t border-slate-800">
-                    <button
-                      onClick={() => handleRequestAIExplanation(selectedFinding)}
-                      disabled={isAiLoading}
-                      className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold text-xs transition flex items-center justify-center space-x-2 shadow-lg shadow-purple-500/20 disabled:opacity-50"
-                    >
-                      <Sparkles className="w-4 h-4 text-purple-200" />
-                      <span>{isAiLoading ? 'Analyzing Evidence...' : 'Generate AI Remediation Patch'}</span>
-                    </button>
-                  </div>
-
-                  {/* AI Output Card */}
-                  {aiExplanation && (
-                    <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs space-y-3 animate-fade-in">
-                      <div className="flex items-center space-x-2 text-purple-300 font-semibold">
-                        <Sparkles className="w-4 h-4" />
-                        <span>AI Remediation Assistant (Grounded Proposal)</span>
-                      </div>
-                      <div className="text-slate-300 leading-relaxed">{aiExplanation.summary}</div>
-                      
-                      {aiExplanation.illustrative_patch_diff && (
-                        <div>
-                          <div className="text-slate-400 font-medium mb-1">Illustrative Patch Diff (Untrusted Proposal):</div>
-                          <pre className="bg-[#050811] p-2.5 rounded border border-purple-500/20 text-emerald-400 overflow-x-auto text-[11px]">
-                            {aiExplanation.illustrative_patch_diff}
-                          </pre>
-                        </div>
-                      )}
-
-                      <div className="text-[10px] text-purple-300/70 italic border-t border-purple-500/20 pt-2">
-                        {aiExplanation.limitations_and_disclaimer}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Automated Fix Verification Agent Action */}
-                  <div className="pt-2 border-t border-slate-800 space-y-2">
-                    <button
-                      onClick={() => handleVerifyFix(selectedFinding)}
-                      disabled={isVerifyingFix}
-                      className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs transition flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-                    >
-                      <CheckCircle className="w-4 h-4 text-emerald-200" />
-                      <span>{isVerifyingFix ? 'Re-scanning & Verifying Fix...' : 'Verify Fix via Automated Re-Scan'}</span>
-                    </button>
-
-                    {verificationOutcome && (
-                      <div className={`p-3 rounded-lg border text-xs space-y-1.5 animate-fade-in ${
-                        verificationOutcome.outcome === 'VERIFIED_RESOLVED'
-                          ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-                          : 'bg-red-950/30 border-red-500/40 text-red-300'
-                      }`}>
-                        <div className="font-bold flex items-center justify-between">
-                          <span>Verification Outcome: {verificationOutcome.outcome}</span>
-                          <span className="text-[10px] font-mono text-slate-400">{verificationOutcome.verified_at?.slice(0, 19).replace('T', ' ')}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-300">{verificationOutcome.comparison_notes}</p>
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          Status Transition: &rarr; <b>{verificationOutcome.new_finding_status}</b>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="glass-panel p-8 rounded-xl text-center text-slate-400 text-sm">
-                  Select a vulnerability from the list to view evidence, inspect risk calculation, or request AI remediation guidance.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: ASSETS & SCOPE AUTHORIZATION */}
-        {activeTab === 'assets' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Registered Application Assets</h3>
-                <p className="text-xs text-slate-400">Inventory of repositories, web applications, containers, and APIs under security scope.</p>
-              </div>
-              <button
-                onClick={() => setShowAddAssetModal(true)}
-                className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-lg shadow-amber-500/20"
-              >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Register Application</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {assets.map((a) => (
-                <div key={a.id} className="glass-panel p-5 rounded-xl border border-slate-800 space-y-3 flex flex-col justify-between">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="text-xs text-amber-400 font-mono font-medium">{a.asset_type}</div>
-                        <h4 className="font-bold text-white text-base mt-0.5">{a.name}</h4>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                        {a.environment}
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-slate-300 font-mono bg-slate-900/80 p-2 rounded border border-slate-800 truncate" title={a.target_locator}>
-                      {a.target_locator}
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
-                      <span>Criticality: <b className="text-slate-200">{a.business_criticality}</b></span>
-                      <span>Exposure: <b className="text-slate-200">{a.exposure}</b></span>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-800/80">
-                    <button
-                      onClick={() => {
-                        setSelectedAssetId(a.id);
-                        setActiveTab('scans');
-                      }}
-                      className="w-full py-2 px-3 bg-slate-800/80 hover:bg-slate-700 text-amber-400 hover:text-amber-300 font-semibold text-xs rounded-lg transition flex items-center justify-center space-x-1.5 border border-slate-700/80"
-                    >
-                      <Terminal className="w-3.5 h-3.5" />
-                      <span>Launch Assessment</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {assets.length === 0 && (
-              <div className="glass-panel p-10 rounded-xl text-center space-y-3 border border-slate-800">
-                <FolderPlus className="w-10 h-10 text-slate-500 mx-auto" />
-                <div className="font-bold text-white text-base">No Applications Registered Yet</div>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Register your repository, web application URL, API specification, or container image to begin automated vulnerability auditing.
-                </p>
-                <button
-                  onClick={() => setShowAddAssetModal(true)}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition"
-                >
-                  + Register First Application
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 4: SCAN ORCHESTRATOR */}
-        {activeTab === 'scans' && (
-          <div className="glass-panel p-6 rounded-xl space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-white">Assessment Execution Pipeline</h3>
-              <p className="text-xs text-slate-400">Orchestrate isolated scanner workers and review execution metadata.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {['Semgrep SAST', 'Gitleaks Secret Scanner', 'OSV-Scanner / pip-audit', 'OWASP ZAP Dynamic', 'Security Config & TLS'].map((scanner) => (
-                <div key={scanner} className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
-                  <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold">
-                    <CheckCircle className="w-4 h-4" />
-                    <span>Adapter Ready</span>
-                  </div>
-                  <div className="font-bold text-white text-sm">{scanner}</div>
-                  <div className="text-[11px] text-slate-400">Argument array execution &middot; Zero shell injection &middot; Timeout bounded</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB: POLICY-AS-CODE BUILD GATES & CYCLONEDX SBOM */}
-        {activeTab === 'policy' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Policy-as-Code Build Gates & CycloneDX SBOM</h3>
-                <p className="text-xs text-slate-400">Evaluate deterministic CI/CD release policies and generate standard CycloneDX 1.5 Software Bill of Materials.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Build Gate Policy Config & Evaluator (7 cols) */}
-              <div className="lg:col-span-7 glass-panel p-6 rounded-xl space-y-5 border border-slate-800">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              {/* Execution Console Terminal */}
+              <div className="bg-[#1A202C] text-slate-100 p-5 rounded-2xl font-mono text-xs space-y-2 shadow-inner">
+                <div className="flex items-center justify-between text-slate-400 border-b border-slate-700/60 pb-2 text-[11px]">
                   <div className="flex items-center space-x-2">
-                    <ShieldCheck className="w-5 h-5 text-amber-400" />
-                    <span className="font-bold text-white text-base">CI/CD Build Gate Policy Engine</span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                    <span className="font-semibold text-slate-200">Execution Worker Terminal</span>
                   </div>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    Engine v1.0.0
-                  </span>
+                  <span>Worker PID: isolated_runner_worker_01</span>
                 </div>
-
-                {/* Form Controls */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max Critical Findings Permitted</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={maxCritical}
-                      onChange={(e) => setMaxCritical(parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max High Findings Permitted</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={maxHigh}
-                      onChange={(e) => setMaxHigh(parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Max Overall Risk Score Ceiling (0-100)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={maxRiskScore}
-                      onChange={(e) => setMaxRiskScore(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-slate-300 font-medium">Maximum Single CVSS Threshold</label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={0}
-                      max={10}
-                      value={maxCvss}
-                      onChange={(e) => setMaxCvss(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono focus:border-amber-400 outline-none"
-                    />
-                  </div>
-
-                  <div className="flex items-center space-x-3 pt-2">
-                    <input
-                      type="checkbox"
-                      id="allowSec"
-                      checked={allowSecrets}
-                      onChange={(e) => setAllowSecrets(e.target.checked)}
-                      className="rounded border-slate-800 text-amber-500 focus:ring-0"
-                    />
-                    <label htmlFor="allowSec" className="text-slate-300 cursor-pointer">
-                      Permit unresolved secrets (Default: False)
-                    </label>
-                  </div>
-
-                  <div className="flex items-center space-x-3 pt-2">
-                    <input
-                      type="checkbox"
-                      id="enforceTls"
-                      checked={enforceTls}
-                      onChange={(e) => setEnforceTls(e.target.checked)}
-                      className="rounded border-slate-800 text-amber-500 focus:ring-0"
-                    />
-                    <label htmlFor="enforceTls" className="text-slate-300 cursor-pointer">
-                      Enforce TLS on Public Assets
-                    </label>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleEvaluatePolicy}
-                  disabled={isEvaluatingPolicy}
-                  className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
-                >
-                  {isEvaluatingPolicy ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Evaluating Security Gate Rules...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4" />
-                      <span>Evaluate Build Gate Policy</span>
-                    </>
+                <div className="space-y-1 pt-1 text-slate-300">
+                  <p className="text-emerald-400">&gt; SentinelAI Deterministic Runner Ready.</p>
+                  <p>&gt; Target Scanners: Semgrep 1.x &middot; Gitleaks 8.x &middot; OSV-Scanner &middot; OWASP ZAP.</p>
+                  <p>&gt; Security Boundary: Direct argument array execution without shell interpolation.</p>
+                  {isScanning && (
+                    <p className="text-amber-400 animate-pulse">&gt; [RUNNING] Active scan pipeline in progress...</p>
                   )}
-                </button>
-
-                {/* Evaluation Results */}
-                {policyResult && (
-                  <div className="space-y-4 pt-3 border-t border-slate-800 animate-fade-in">
-                    <div className={`p-4 rounded-xl border flex items-center justify-between ${
-                      policyResult.overall_status === 'PASSED'
-                        ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
-                        : policyResult.overall_status === 'WARNING'
-                        ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
-                        : 'bg-red-950/20 border-red-500/40 text-red-300'
-                    }`}>
-                      <div className="flex items-center space-x-3">
-                        {policyResult.overall_status === 'PASSED' ? (
-                          <ShieldCheck className="w-7 h-7 text-emerald-400" />
-                        ) : (
-                          <ShieldAlert className="w-7 h-7 text-red-400" />
-                        )}
-                        <div>
-                          <div className="font-extrabold text-base tracking-wide">
-                            POLICY GATE: {policyResult.overall_status}
-                          </div>
-                          <div className="text-xs text-slate-300">{policyResult.summary}</div>
-                        </div>
-                      </div>
-                      <div className="text-right text-xs font-mono">
-                        <div>Blocking: <b className="text-white">{policyResult.blocking_findings_count}</b></div>
-                        <div className="text-slate-400 text-[10px]">Evaluated: {policyResult.total_active_findings} findings</div>
-                      </div>
-                    </div>
-
-                    {/* Rules list */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">Policy Rules Evaluation</div>
-                      <div className="space-y-1.5">
-                        {policyResult.rule_results?.map((r: any) => (
-                          <div key={r.rule_id} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
-                            <div className="space-y-0.5">
-                              <div className="font-semibold text-slate-200">{r.title}</div>
-                              <div className="text-[11px] text-slate-400">{r.message}</div>
-                            </div>
-                            <span className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
-                              r.status === 'PASS'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : r.status === 'WARN'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                            }`}>
-                              {r.status}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* CycloneDX SBOM Generator & Preview (5 cols) */}
-              <div className="lg:col-span-5 glass-panel p-6 rounded-xl space-y-5 border border-slate-800">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div className="flex items-center space-x-2">
-                    <Layers className="w-5 h-5 text-emerald-400" />
-                    <span className="font-bold text-white text-base">CycloneDX 1.5 SBOM</span>
-                  </div>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    Standard Spec
-                  </span>
+                  {!isScanning && (
+                    <p className="text-slate-400">&gt; Standing by for assessment execution command.</p>
+                  )}
                 </div>
+              </div>
+            </div>
+          )}
 
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Generate industry-standard Software Bill of Materials (SBOM) cataloging software components, container dependencies, licenses, and mapped vulnerability advisories.
-                </p>
-
-                <div className="flex space-x-3">
+          {/* TAB 5: POLICY GATES & SBOM */}
+          {activeTab === 'policy' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                    Deterministic Build Gate & SBOM
+                  </h2>
+                  <p className="text-xs text-[#5A6578]">
+                    Strict zero-tolerance release policies and CycloneDX 1.5 Software Bill of Materials.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
                   <button
                     onClick={handleGenerateSBOM}
                     disabled={isGeneratingSbom}
-                    className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                    className="btn-clay px-4 py-2 text-xs font-semibold flex items-center space-x-1.5"
                   >
-                    {isGeneratingSbom ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Generating SBOM...</span>
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Generate SBOM</span>
-                      </>
-                    )}
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Generate CycloneDX SBOM</span>
                   </button>
+                  <button
+                    onClick={handleEvaluatePolicy}
+                    disabled={isEvaluatingPolicy}
+                    className="btn-emerald px-4 py-2 text-xs flex items-center space-x-1.5"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Evaluate Build Gate</span>
+                  </button>
+                </div>
+              </div>
 
-                  {sbomData && (
+              {/* Policy Evaluation Result */}
+              {policyResult && (
+                <div
+                  className={`p-5 rounded-2xl border ${
+                    policyResult.overall_status === 'PASSED'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                      : 'bg-red-50 border-red-300 text-red-900'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      {policyResult.overall_status === 'PASSED' ? (
+                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
+                      )}
+                      <span className="font-bold text-sm">
+                        Build Gate Result: {policyResult.overall_status}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono">
+                      Violations: {policyResult.violations.length}
+                    </span>
+                  </div>
+                  {policyResult.violations.length > 0 && (
+                    <ul className="mt-3 list-disc list-inside text-xs space-y-1">
+                      {policyResult.violations.map((v: string, i: number) => (
+                        <li key={i}>{v}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {/* CycloneDX SBOM Data preview */}
+              {sbomData && (
+                <div className="clay-card-flat p-4 rounded-2xl border border-[#EAE4D8] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-[#1E252B]">
+                      CycloneDX 1.5 JSON &middot; {sbomData.components?.length || 0} Components
+                    </span>
                     <button
                       onClick={handleDownloadSBOM}
-                      className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-lg transition flex items-center space-x-2 border border-slate-700"
+                      className="text-xs text-[#0D6E48] hover:underline font-bold"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download JSON</span>
+                      Download JSON
                     </button>
-                  )}
+                  </div>
+                  <pre className="p-3 bg-[#FAF7F0] border border-[#EAE4D8] rounded-xl text-[11px] font-mono text-[#1E252B] max-h-48 overflow-y-auto">
+                    {JSON.stringify(sbomData, null, 2)}
+                  </pre>
                 </div>
+              )}
+            </div>
+          )}
 
-                {sbomData ? (
-                  <div className="space-y-3 pt-2">
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                        <div className="text-slate-400 text-[11px]">Components</div>
-                        <div className="text-xl font-bold text-white mt-0.5">{sbomData.components?.length || 0}</div>
-                      </div>
-                      <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                        <div className="text-slate-400 text-[11px]">Vulnerabilities</div>
-                        <div className="text-xl font-bold text-amber-400 mt-0.5">{sbomData.vulnerabilities?.length || 0}</div>
-                      </div>
-                    </div>
+          {/* TAB 6: REPORTS & EXPORTS */}
+          {activeTab === 'reports' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                    Security Reports & Compliance Proof
+                  </h2>
+                  <p className="text-xs text-[#5A6578]">
+                    Executive summaries, deterministic audit chains, and audit exports.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleDownloadReport('PDF')}
+                    className="btn-emerald px-4 py-2 text-xs flex items-center space-x-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download PDF Report</span>
+                  </button>
+                  <button
+                    onClick={() => handleDownloadReport('JSON')}
+                    className="btn-clay px-4 py-2 text-xs font-semibold flex items-center space-x-1.5"
+                  >
+                    <FileCode className="w-3.5 h-3.5" />
+                    <span>Export JSON Raw</span>
+                  </button>
+                </div>
+              </div>
 
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-slate-400 font-mono">CycloneDX Schema Preview:</div>
-                      <pre className="bg-[#050811] p-3 rounded-lg border border-slate-800 text-[10px] text-slate-300 font-mono max-h-64 overflow-y-auto">
-                        {JSON.stringify(sbomData, null, 2)}
-                      </pre>
-                    </div>
+              <div className="clay-card-warm p-6 rounded-2xl border border-[#E6E0D2] space-y-4">
+                <h3 className="font-bold text-sm text-[#1E252B]">Executive Security Snapshot</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                  <div>
+                    <div className="text-[#8C96A6]">Project</div>
+                    <div className="font-bold text-[#1E252B] mt-0.5">{selectedProject?.name}</div>
                   </div>
-                ) : (
-                  <div className="p-8 rounded-xl bg-slate-900/40 border border-slate-800/80 text-center text-slate-500 text-xs">
-                    Click 'Generate SBOM' to produce the CycloneDX 1.5 bill of materials for {selectedProject?.name || 'this project'}.
+                  <div>
+                    <div className="text-[#8C96A6]">Total Findings</div>
+                    <div className="font-bold text-[#1E252B] mt-0.5">{findings.length}</div>
                   </div>
-                )}
+                  <div>
+                    <div className="text-[#8C96A6]">Critical / High</div>
+                    <div className="font-bold text-red-600 mt-0.5">{criticalCount} / {highCount}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#8C96A6]">Compliance Status</div>
+                    <div className="font-bold text-[#0D6E48] mt-0.5">SOC 2 &middot; PCI-DSS Ready</div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 5: REPORTS & COMPLIANCE */}
-        {activeTab === 'reports' && (
-          <div className="glass-panel p-6 rounded-xl space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-white">Compliance & Executive Reporting</h3>
-              <p className="text-xs text-slate-400">Generate reproducible, evidence-grounded PDF and JSON reports for engineering reviews and auditors.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-                <FileText className="w-8 h-8 text-amber-400" />
-                <h4 className="font-bold text-white text-base">Executive PDF Report</h4>
-                <p className="text-xs text-slate-400">Complete formal audit report including methodology, scanner versions, risk breakdown, and sanitized evidence.</p>
-                <button
-                  onClick={() => handleDownloadReport('PDF')}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition flex items-center space-x-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download PDF Report</span>
-                </button>
+          {/* TAB 7: AUDIT TRAIL */}
+          {activeTab === 'audit' && (
+            <div className="clay-card p-6 rounded-3xl space-y-6 border border-[#E8E2D5]">
+              <div>
+                <h2 className="font-serif-luxury text-xl font-bold text-[#1E252B]">
+                  Immutable Platform Audit Trail
+                </h2>
+                <p className="text-xs text-[#5A6578]">
+                  Chronological security-sensitive event log tracking logins, scan launches, risk updates, and triage decisions.
+                </p>
               </div>
 
-              <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
-                <Terminal className="w-8 h-8 text-emerald-400" />
-                <h4 className="font-bold text-white text-base">Machine-Readable JSON</h4>
-                <p className="text-xs text-slate-400">Structured JSON export containing canonical findings, CWE mappings, CVSS scores, and evidence provenance.</p>
-                <button
-                  onClick={() => handleDownloadReport('JSON')}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-lg transition flex items-center space-x-2 border border-slate-700"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download JSON Export</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 6: AUDIT TRAIL */}
-        {activeTab === 'audit' && (
-          <div className="glass-panel p-6 rounded-xl space-y-4">
-            <div>
-              <h3 className="text-lg font-bold text-white">Immutable Platform Audit Trail</h3>
-              <p className="text-xs text-slate-400">Chronological security-sensitive event log tracking logins, scan launches, risk updates, and triage decisions.</p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400">
-                    <th className="py-2.5 px-3">Action</th>
-                    <th className="py-2.5 px-3">Resource</th>
-                    <th className="py-2.5 px-3">Client IP</th>
-                    <th className="py-2.5 px-3">Timestamp (UTC)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-3 text-amber-400 font-semibold">{log.action}</td>
-                      <td className="py-2.5 px-3 text-slate-300">{log.resource_type} ({log.resource_id ? log.resource_id.slice(0, 8) : 'N/A'})</td>
-                      <td className="py-2.5 px-3 text-slate-400">{log.client_ip || '127.0.0.1'}</td>
-                      <td className="py-2.5 px-3 text-slate-500">{log.created_at.slice(0, 19).replace('T', ' ')}</td>
+              <div className="overflow-x-auto rounded-2xl border border-[#EAE4D8]">
+                <table className="w-full text-left text-xs bg-white">
+                  <thead>
+                    <tr className="bg-[#FAF7F0] border-b border-[#EAE4D8] text-[#5A6578] font-semibold">
+                      <th className="py-3 px-4">Action</th>
+                      <th className="py-3 px-4">Resource</th>
+                      <th className="py-3 px-4">Client IP</th>
+                      <th className="py-3 px-4">Timestamp (UTC)</th>
                     </tr>
-                  ))}
-                  {auditLogs.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-slate-500 italic">
-                        No audit logs available for current session or role.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-[#F0ECE1] font-mono text-[11px]">
+                    {auditLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-[#FAF7F0] transition">
+                        <td className="py-3 px-4 font-bold text-[#0D6E48]">{log.action}</td>
+                        <td className="py-3 px-4 text-[#1E252B]">
+                          {log.resource_type} ({log.resource_id ? log.resource_id.slice(0, 8) : 'N/A'})
+                        </td>
+                        <td className="py-3 px-4 text-[#5A6578]">{log.client_ip || '127.0.0.1'}</td>
+                        <td className="py-3 px-4 text-[#8C96A6]">
+                          {log.created_at.slice(0, 19).replace('T', ' ')}
+                        </td>
+                      </tr>
+                    ))}
+                    {auditLogs.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center text-[#8C96A6] italic font-sans text-xs">
+                          No audit logs available for current session.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
-      {/* Register Asset Modal */}
+      {/* MODAL: REGISTER ASSET / APPLICATION (Warm Ivory Claymorphic) */}
       {showAddAssetModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-[#0B0F19] border border-amber-500/30 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden space-y-4">
-            <div className="flex items-center justify-between p-5 border-b border-slate-800">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                  <FolderPlus className="w-4 h-4 text-amber-400" />
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="clay-card bg-white border border-[#E8E2D5] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden space-y-4">
+            <div className="flex items-center justify-between p-6 border-b border-[#EAE4D8] bg-[#FAF8F3]">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-[#FAF0E6] flex items-center justify-center">
+                  <FolderPlus className="w-5 h-5 text-[#A57424]" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white text-base">Register Application / Asset</h3>
-                  <p className="text-xs text-slate-400">Add a new target application into security assessment scope.</p>
+                  <h3 className="font-serif-luxury font-bold text-[#1E252B] text-lg">
+                    Register Application / Target
+                  </h3>
+                  <p className="text-xs text-[#5A6578]">
+                    Add a new application into the authorized security assessment scope.
+                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setShowAddAssetModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                className="p-1.5 rounded-full text-[#8C96A6] hover:text-[#1E252B] hover:bg-[#F0ECE1] transition"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateAsset} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleCreateAsset} className="p-6 space-y-4 text-xs">
               <div className="space-y-1">
-                <label className="text-slate-300 font-medium">Application Name</label>
+                <label className="text-[#1E252B] font-semibold">Application / Asset Name</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Payments Gateway or Customer Portal"
+                  placeholder="e.g. Customer Portal Web App"
                   value={newAssetName}
                   onChange={(e) => setNewAssetName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:border-amber-400 outline-none"
+                  className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-slate-300 font-medium">Asset & Assessment Type</label>
-                <select
-                  value={newAssetType}
-                  onChange={(e) => setNewAssetType(e.target.value as any)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-amber-400 outline-none"
-                >
-                  <option value="REPOSITORY">Source Code Repository (SAST, Secrets, SCA)</option>
-                  <option value="WEB_APPLICATION">Live Web Application (DAST, TLS, HTTP Headers)</option>
-                  <option value="API_ENDPOINT">OpenAPI / Swagger Specification (API Security Audit)</option>
-                  <option value="CONTAINER_IMAGE">Container Image (OSV Container Audit)</option>
-                </select>
-                <p className="text-[11px] text-slate-400">
-                  {newAssetType === 'REPOSITORY' && 'Evaluates Semgrep SAST, Gitleaks secrets, and OSV package dependencies.'}
-                  {newAssetType === 'WEB_APPLICATION' && 'Evaluates OWASP ZAP active scanning and TLS configuration with SSRF defenses.'}
-                  {newAssetType === 'API_ENDPOINT' && 'Evaluates OpenAPI / Swagger specs for unauthenticated mutations, HTTP URLs, and CORS.'}
-                  {newAssetType === 'CONTAINER_IMAGE' && 'Audits container image dependencies and system package vulnerabilities.'}
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-300 font-medium">Target Locator / Address</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={
-                    newAssetType === 'REPOSITORY'
-                      ? 'https://github.com/org/repo or local/path'
-                      : newAssetType === 'WEB_APPLICATION'
-                      ? 'https://app.example.com'
-                      : newAssetType === 'API_ENDPOINT'
-                      ? 'https://api.example.com/openapi.json or /path/spec.json'
-                      : 'docker.io/library/app:latest'
-                  }
-                  value={newAssetLocator}
-                  onChange={(e) => setNewAssetLocator(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono placeholder-slate-600 focus:border-amber-400 outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Environment</label>
+                  <label className="text-[#1E252B] font-semibold">Asset Type</label>
+                  <select
+                    value={newAssetType}
+                    onChange={(e) => setNewAssetType(e.target.value as any)}
+                    className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
+                  >
+                    <option value="REPOSITORY">Git Repository (SAST/SCA)</option>
+                    <option value="WEB_APPLICATION">Web Application (DAST)</option>
+                    <option value="API_ENDPOINT">API Spec / Endpoint (BOLA)</option>
+                    <option value="CONTAINER_IMAGE">Container Image (OSS)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[#1E252B] font-semibold">Environment</label>
                   <select
                     value={newAssetEnvironment}
                     onChange={(e) => setNewAssetEnvironment(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                    className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                   >
                     <option value="PRODUCTION">Production</option>
                     <option value="STAGING">Staging</option>
                     <option value="DEVELOPMENT">Development</option>
                   </select>
                 </div>
+              </div>
 
+              <div className="space-y-1">
+                <label className="text-[#1E252B] font-semibold">Target Locator (URL, Git, or Docker)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="https://portal.internal.company.com"
+                  value={newAssetLocator}
+                  onChange={(e) => setNewAssetLocator(e.target.value)}
+                  className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs font-mono text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Criticality</label>
+                  <label className="text-[#1E252B] font-semibold">Criticality</label>
                   <select
                     value={newAssetCriticality}
                     onChange={(e) => setNewAssetCriticality(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                    className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                   >
                     <option value="CRITICAL">Critical</option>
                     <option value="HIGH">High</option>
@@ -1378,31 +1624,38 @@ export default function SentinelConsole() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-medium">Exposure</label>
+                  <label className="text-[#1E252B] font-semibold">Network Exposure</label>
                   <select
                     value={newAssetExposure}
                     onChange={(e) => setNewAssetExposure(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                    className="w-full bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3.5 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
                   >
-                    <option value="INTERNET_FACING">Internet-Facing</option>
-                    <option value="INTERNAL">Internal</option>
-                    <option value="RESTRICTED">Restricted</option>
+                    <option value="INTERNET_FACING">Internet Facing</option>
+                    <option value="INTERNAL">Internal Network</option>
+                    <option value="RESTRICTED">Restricted Enclave</option>
                   </select>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex items-center justify-end space-x-3">
+              <div className="p-3 bg-[#FAF8F3] rounded-xl border border-[#E8E2D5] text-[11px] text-[#5A6578] flex items-center space-x-2">
+                <input type="checkbox" id="authScope" required className="accent-[#0D6E48]" />
+                <label htmlFor="authScope">
+                  I authorize SentinelAI to conduct automated vulnerability assessments against this target.
+                </label>
+              </div>
+
+              <div className="pt-4 border-t border-[#EAE4D8] flex items-center justify-end space-x-3">
                 <button
                   type="button"
                   onClick={() => setShowAddAssetModal(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition"
+                  className="btn-clay px-4 py-2 text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingAsset}
-                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition disabled:opacity-50 flex items-center space-x-1.5 shadow-lg shadow-amber-500/20"
+                  className="btn-emerald px-5 py-2 text-xs flex items-center space-x-1.5"
                 >
                   {isSubmittingAsset ? (
                     <>
@@ -1411,7 +1664,7 @@ export default function SentinelConsole() {
                     </>
                   ) : (
                     <>
-                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <Plus className="w-3.5 h-3.5" />
                       <span>Register & Add to Scope</span>
                     </>
                   )}
@@ -1422,10 +1675,172 @@ export default function SentinelConsole() {
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-[#06080F] py-4 text-center text-xs text-slate-500">
-        SentinelAI &middot; Evidence-Driven Multi-Agent Application Security Intelligence Platform &middot; Confidential
-      </footer>
+      {/* MODAL: FINDING DETAILS & AI ADVISORY */}
+      {selectedFinding && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="clay-card bg-white border border-[#E8E2D5] rounded-3xl w-full max-w-3xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-[#EAE4D8] bg-[#FAF8F3] flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                    selectedFinding.internal_risk_level === 'CRITICAL'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-orange-100 text-orange-700'
+                  }`}
+                >
+                  {selectedFinding.internal_risk_level}
+                </span>
+                <div>
+                  <h3 className="font-serif-luxury font-bold text-[#1E252B] text-lg">
+                    {selectedFinding.title}
+                  </h3>
+                  <div className="flex items-center space-x-2 text-xs text-[#5A6578] font-mono mt-0.5">
+                    <span>{selectedFinding.scanner_rule_id}</span>
+                    {selectedFinding.cwe_id && <span>&middot; {selectedFinding.cwe_id}</span>}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedFinding(null)}
+                className="p-1.5 rounded-full text-[#8C96A6] hover:text-[#1E252B] hover:bg-[#F0ECE1] transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#1E252B]">
+              {/* Evidence & Location */}
+              <div className="clay-card-warm p-4 rounded-2xl border border-[#E6E0D2] space-y-2">
+                <div className="font-bold text-[#1E252B] text-xs">Security Evidence & Code Location</div>
+                <div className="font-mono text-[11px] text-[#5A6578]">
+                  {selectedFinding.evidence?.[0]?.file_path || 'Repository root'}:{selectedFinding.evidence?.[0]?.start_line || 1}
+                </div>
+                {selectedFinding.evidence?.[0]?.sanitized_snippet && (
+                  <pre className="p-3 bg-white border border-[#EAE4D8] rounded-xl font-mono text-[11px] overflow-x-auto text-red-800">
+                    {selectedFinding.evidence[0].sanitized_snippet}
+                  </pre>
+                )}
+              </div>
+
+              {/* AI Advisory Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-[#A57424]" />
+                    <span className="font-bold text-xs text-[#1E252B]">
+                      AI Remediation Advisory (Human-Reviewed)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleRequestAIExplanation(selectedFinding)}
+                    disabled={isAiLoading}
+                    className="btn-clay px-3 py-1 text-xs font-semibold flex items-center space-x-1"
+                  >
+                    {isAiLoading ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3 h-3 text-[#A57424]" />
+                        <span>Request AI Guidance</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {aiExplanation && (
+                  <div className="clay-card-flat p-4 rounded-2xl border border-[#0D6E48]/30 bg-[#F4F9F6] space-y-3 text-xs">
+                    <div>
+                      <strong className="text-[#0D6E48]">Plain Language Summary:</strong>
+                      <p className="mt-1 text-[#1E252B]">{aiExplanation.summary}</p>
+                    </div>
+                    <div>
+                      <strong className="text-[#0D6E48]">Deterministic Remediation:</strong>
+                      <p className="mt-1 text-[#1E252B]">{aiExplanation.remediation_guidance}</p>
+                    </div>
+                    {aiExplanation.illustrative_patch_diff && (
+                      <div>
+                        <strong className="text-[#0D6E48]">Recommended Patch:</strong>
+                        <pre className="mt-1 p-3 bg-white border border-[#0D6E48]/20 rounded-xl font-mono text-[11px] overflow-x-auto text-emerald-900">
+                          {aiExplanation.illustrative_patch_diff}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Fix Verification Trigger */}
+              <div className="clay-card-warm p-4 rounded-2xl border border-[#E6E0D2] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CheckSquare className="w-4 h-4 text-[#0D6E48]" />
+                    <span className="font-bold text-xs text-[#1E252B]">Automated Fix Verification</span>
+                  </div>
+                  <button
+                    onClick={() => handleVerifyFix(selectedFinding)}
+                    disabled={isVerifyingFix}
+                    className="btn-emerald px-4 py-1.5 text-xs flex items-center space-x-1"
+                  >
+                    {isVerifyingFix ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        <span>Verifying in sandbox...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Verify Fix</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                {verificationOutcome && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-semibold ${
+                      verificationOutcome.outcome === 'VERIFIED_FIXED'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    Outcome: {verificationOutcome.outcome} &middot; {verificationOutcome.message}
+                  </div>
+                )}
+              </div>
+
+              {/* Triage Form */}
+              <div className="space-y-3 pt-2 border-t border-[#EAE4D8]">
+                <div className="font-bold text-xs text-[#1E252B]">Triage State & Rationale</div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    placeholder="Provide mandatory security rationale for audit log..."
+                    value={statusRationale}
+                    onChange={(e) => setStatusRationale(e.target.value)}
+                    className="flex-1 bg-[#FAF8F3] border border-[#E0D9CB] rounded-xl px-3 py-2 text-xs text-[#1E252B] focus:outline-none focus:border-[#0D6E48]"
+                  />
+                  <button
+                    onClick={() => handleTriageFinding(selectedFinding.id, 'VERIFIED_RESOLVED')}
+                    className="btn-emerald px-4 py-2 text-xs"
+                  >
+                    Resolve
+                  </button>
+                  <button
+                    onClick={() => handleTriageFinding(selectedFinding.id, 'FALSE_POSITIVE')}
+                    className="btn-clay px-3 py-2 text-xs font-semibold"
+                  >
+                    False Positive
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
